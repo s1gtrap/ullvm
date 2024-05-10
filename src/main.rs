@@ -1,4 +1,3 @@
-#![feature(convert_float_to_int, extern_types)]
 #![allow(non_snake_case)]
 
 use dioxus::prelude::*;
