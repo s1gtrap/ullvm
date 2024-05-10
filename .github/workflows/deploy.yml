@@ -10,4 +10,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Dioxus Deploy
-        uses: DioxusLabs/deploy-action@0.1.1
+        uses: DioxusLabs/deploy-action@0025333337468cee2a224f2db60b6434ef9e2164
