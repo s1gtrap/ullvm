@@ -30,8 +30,7 @@ macro_rules! test {
     };
 }
 
-const EXAMPLES: &'static [(&'static str, &'static str)] =
-    &test!["min.ll", "ret.ll", "fib.ll", "brainfuck.ll"];
+const EXAMPLES: &[(&str, &str)] = &test!["min.ll", "ret.ll", "fib.ll", "brainfuck.ll"];
 
 #[component]
 fn App() -> Element {
