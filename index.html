@@ -30,8 +30,8 @@
   <script src="wasm.js"></script>
 <script src="llvm-json.js"></script>
 <script type="module">
-    import init from "/./assets/dioxus/ullvm.js";
-    init("/./assets/dioxus/ullvm_bg.wasm").then(wasm => {
+    import init from "/ullvm/assets/dioxus/ullvm.js";
+    init("/ullvm/assets/dioxus/ullvm_bg.wasm").then(wasm => {
       if (wasm.__wbindgen_start == undefined) {
         wasm.main();
       }
