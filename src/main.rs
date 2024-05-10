@@ -60,7 +60,7 @@ fn App() -> Element {
                 }
                 textarea {
                     onchange: move |e: Event<FormData>| {
-                        *input.write() = e.value().to_owned();
+                        *input.write() = e.value().to_string();
                     },
                     "{input}"
                 }
