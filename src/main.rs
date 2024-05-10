@@ -41,13 +41,22 @@ fn App() -> Element {
         main {
             div {
                 select {
+                    id: "example-picker",
                     onchange: move |e: Event<FormData>| {
-                        *input
-                            .write() = EXAMPLES[e.data.value().parse::<usize>().unwrap()].1.to_string();
+                        // set input to item picked
+                        let pick = e.data.value().parse::<usize>().unwrap() - 1;
+                        *input.write() = EXAMPLES[pick].1.to_string();
+
+                        // reset value after pick
+                        let window = web_sys::window().unwrap();
+                        let document = window.document().unwrap();
+                        let element = document.get_element_by_id("example-picker").unwrap();
+                        let select: &web_sys::HtmlSelectElement = element.dyn_ref().unwrap();
+                        select.set_value("0");
                     },
-                    option { disabled: true, "-- example --" }
+                    option { value: "0", disabled: true, "-- example --" }
                     for (i , (n , _)) in EXAMPLES.iter().enumerate() {
-                        option { key: "{i}", value: "{i}", "{n}" }
+                        option { key: "{i}", value: "{i + 1}", "{n}" }
                     }
                 }
                 textarea {
