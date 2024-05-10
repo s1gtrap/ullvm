@@ -18,6 +18,9 @@ asset_dir = "assets"
 # HTML title tag content
 title = "ullvm"
 
+# The application will be served at domain.com/ullvmmy_application/, so we need to modify the base_path to the path where the application will be served
+base_path = "ullvm"
+
 [web.watcher]
 
 # when watcher trigger, regenerate the `index.html`
