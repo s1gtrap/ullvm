@@ -42,11 +42,8 @@ fn App() -> Element {
                 select {
                     id: "example-picker",
                     onchange: move |e: Event<FormData>| {
-                        // set input to item picked
                         let pick = e.data.value().parse::<usize>().unwrap() - 1;
                         *input.write() = EXAMPLES[pick].1.to_string();
-
-                        // reset value after pick
                         let window = web_sys::window().unwrap();
                         let document = window.document().unwrap();
                         let element = document.get_element_by_id("example-picker").unwrap();
@@ -80,18 +77,24 @@ fn App() -> Element {
                         );
                         let str = Module::UTF8ToString(ptr).as_string().unwrap();
                         let obj = js_sys::JSON::parse(&str).unwrap();
-                        let out = js_sys::JSON::stringify_with_replacer_and_space(
+                        let out: js_sys::JsString = js_sys::JSON::stringify_with_replacer_and_space(
                                 &obj,
                                 &JsValue::NULL,
                                 &JsValue::from_f64(1.0),
                             )
                             .unwrap();
-                        *output.write() = out.into();
+                        tracing::info!("{}", out);
+                        let s: String = out.into();
+                        let m: llvm_ir::Module = serde_json::from_str(&s).unwrap();
+                        tracing::info!("{:?}", m);
+                        *output.write() = format!("{:#?}", m);
                     },
                     "Parse"
                 }
             }
-            div { class: "output", "{output}" }
+            div { class: "output",
+                div { "{output}" }
+            }
         }
     }
 }
