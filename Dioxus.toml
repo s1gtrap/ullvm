@@ -34,10 +34,10 @@ watch_path = ["src", "assets"]
 
 # CSS style file
 
-style = ["main.css"]
+style = ["/ullvm/tailwind.css"]
 
 # Javascript code file
-script = ["wasm.js", "llvm-json.js"]
+script = ["/ullvm/wasm.js", "/ullvm/llvm-json.js"]
 
 [web.resource.dev]
 
