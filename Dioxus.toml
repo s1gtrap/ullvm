@@ -37,7 +37,11 @@ watch_path = ["src", "assets"]
 style = ["/ullvm/tailwind.css"]
 
 # Javascript code file
-script = ["/ullvm/wasm.js", "/ullvm/llvm-json.js"]
+script = [
+  "https://cdn.jsdelivr.net/npm/@hpcc-js/wasm/dist/graphviz.umd.js",
+  "/ullvm/wasm.js",
+  "/ullvm/llvm-json.js",
+]
 
 [web.resource.dev]
 
