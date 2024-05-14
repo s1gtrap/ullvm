@@ -42,6 +42,7 @@ fn App() -> Element {
     let mut output_json = use_signal(|| "".to_owned());
     let mut output_debug = use_signal(|| "".to_owned());
     let mut output_abstract = use_signal(|| "".to_owned());
+    let mut output_cfg = use_signal(|| "".to_owned());
     rsx! {
         main { class: "w-full bg-indigo",
             div { class: "flex",
@@ -102,14 +103,23 @@ fn App() -> Element {
                                     tracing::info!("{}", out);
                                     let s: String = out.into();
                                     *output_json.write() = s.clone();
-
                                     let m: llvm_ir::Module = serde_json::from_str(&s).unwrap();
                                     tracing::info!("llvm-ir: {:?}", m);
                                     *output_debug.write() = format!("{:#?}", m);
-
                                     let m: ir::Module = serde_json::from_str(&s).unwrap();
                                     tracing::info!("abstract: {:?}", m);
                                     *output_abstract.write() = format!("{:#?}", m);
+                                    tracing::info!("pre-cfg\n");
+                                    let cfg = ir::cfg(&m.functions[0]);
+                                    tracing::info!("post-cfg");
+                                    tracing::info!(
+                                        "{:?}", petgraph::dot::Dot::with_config(& cfg, &
+                                        [petgraph::dot::Config::EdgeNoLabel])
+                                    );
+                                    *output_cfg.write() = format!(
+                                        "{:?}",
+                                        petgraph::dot::Dot::with_config(&cfg, &[petgraph::dot::Config::EdgeNoLabel]),
+                                    );
                                 },
                                 "Parse"
                             }
@@ -135,6 +145,12 @@ fn App() -> Element {
                                 "Abstract",
                                 rsx! {
                                     code::Code { code : output_abstract }
+                                },
+                            ),
+                            (
+                                "CFG",
+                                rsx! {
+                                    code::Code { code : output_cfg }
                                 },
                             ),
                         ]
