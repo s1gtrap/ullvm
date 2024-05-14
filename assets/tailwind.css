@@ -598,6 +598,10 @@ video {
   overflow: scroll;
 }
 
+.whitespace-nowrap {
+  white-space: nowrap;
+}
+
 .whitespace-pre {
   white-space: pre;
 }

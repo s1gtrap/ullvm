@@ -5,6 +5,7 @@ use tracing::Level;
 use wasm_bindgen::prelude::*;
 
 mod code;
+mod ir;
 mod tabs;
 
 #[wasm_bindgen]
@@ -40,6 +41,7 @@ fn App() -> Element {
     let mut input = use_signal(|| "".to_owned());
     let mut output_json = use_signal(|| "".to_owned());
     let mut output_debug = use_signal(|| "".to_owned());
+    let mut output_abstract = use_signal(|| "".to_owned());
     rsx! {
         main { class: "w-full bg-indigo",
             div { class: "flex",
@@ -66,7 +68,7 @@ fn App() -> Element {
                         }
                         div { class: "flex-1",
                             textarea {
-                                class: "w-full h-full font-mono",
+                                class: "w-full h-full font-mono whitespace-pre",
                                 onchange: move |e: Event<FormData>| {
                                     *input.write() = e.value().to_string();
                                 },
@@ -100,7 +102,7 @@ fn App() -> Element {
                                     tracing::info!("{}", out);
                                     let s: String = out.into();
                                     *output_json.write() = s.clone();
-                                    let m: llvm_ir::Module = serde_json::from_str(&s).unwrap();
+                                    let m: ir::Module = serde_json::from_str(&s).unwrap();
                                     tracing::info!("{:?}", m);
                                     *output_debug.write() = format!("{:#?}", m);
                                 },
@@ -120,6 +122,12 @@ fn App() -> Element {
                             ),
                             (
                                 "Debug",
+                                rsx! {
+                                    code::Code { code : output_debug }
+                                },
+                            ),
+                            (
+                                "Abstract",
                                 rsx! {
                                     code::Code { code : output_debug }
                                 },
