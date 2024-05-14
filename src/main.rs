@@ -36,6 +36,12 @@ macro_rules! test {
 
 const EXAMPLES: &[(&str, &str)] = &test!["min.ll", "ret.ll", "fib.ll", "brainfuck.ll"];
 
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = Graphviz)]
+    async fn load(g: JsValue) -> wasm_bindgen::JsValue;
+}
+
 #[component]
 fn App() -> Element {
     let mut input = use_signal(|| "".to_owned());
@@ -126,6 +132,10 @@ fn App() -> Element {
                                             )
                                         })
                                         .collect();
+                                    let window = web_sys::window().unwrap();
+                                    let hpccWasm = js_sys::Reflect::get(&window, &JsValue::from_str("@hpcc-js/wasm")).unwrap();
+                                    let graphviz  = js_sys::Reflect::get(&hpccWasm, &JsValue::from_str("Graphviz")).unwrap();
+                                    load(graphviz);
                                 },
                                 "Parse"
                             }
