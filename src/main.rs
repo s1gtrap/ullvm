@@ -44,7 +44,7 @@ fn App() -> Element {
     let mut output_abstract = use_signal(|| "".to_owned());
     let mut output_cfg = use_signal(|| vec![(String::new(), String::new())]);
     rsx! {
-        main { class: "w-full bg-indigo",
+        main { class: "w-full bg-slate-100",
             div { class: "flex",
                 div { class: "w-1/2 lg:w-1/3",
                     div { class: "flex flex-col h-screen",
@@ -69,7 +69,7 @@ fn App() -> Element {
                         }
                         div { class: "flex-1",
                             textarea {
-                                class: "w-full h-full font-mono whitespace-pre",
+                                class: "w-full h-full font-mono whitespace-pre mr-1 box-border",
                                 onchange: move |e: Event<FormData>| {
                                     *input.write() = e.value().to_string();
                                 },
@@ -157,7 +157,8 @@ fn App() -> Element {
                                 "CFG".to_string(),
                                 rsx! {
                                     tabs::Tabs { tabs : output_cfg.read().clone().into_iter().map(| s | { (s
-                                    .0.clone(), rsx! { "{s.1}" }) }).collect::< Vec < _ >> (), }
+                                    .0.clone(), rsx! { code::Code { code : "{s.1}" } }) }).collect::< Vec < _
+                                    >> (), }
                                 },
                             ),
                         ]
