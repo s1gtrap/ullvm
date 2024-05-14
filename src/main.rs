@@ -109,17 +109,23 @@ fn App() -> Element {
                                     let m: ir::Module = serde_json::from_str(&s).unwrap();
                                     tracing::info!("abstract: {:?}", m);
                                     *output_abstract.write() = format!("{:#?}", m);
-                                    tracing::info!("pre-cfg\n");
-                                    let cfg = ir::cfg(&m.functions[0]);
-                                    tracing::info!("post-cfg");
-                                    tracing::info!(
-                                        "{:?}", petgraph::dot::Dot::with_config(& cfg, &
-                                        [petgraph::dot::Config::EdgeNoLabel])
-                                    );
-                                    *output_cfg.write() = vec![(m.functions[0].name.clone(), format!(
-                                        "{:?}",
-                                        petgraph::dot::Dot::with_config(&cfg, &[petgraph::dot::Config::EdgeNoLabel]),
-                                    ))];
+                                    *output_cfg.write() = m
+                                        .functions
+                                        .iter()
+                                        .map(|f| {
+                                            let cfg = ir::cfg(&f);
+                                            (
+                                                f.name.clone(),
+                                                format!(
+                                                    "{:?}",
+                                                    petgraph::dot::Dot::with_config(
+                                                        &cfg,
+                                                        &[petgraph::dot::Config::EdgeNoLabel],
+                                                    ),
+                                                ),
+                                            )
+                                        })
+                                        .collect();
                                 },
                                 "Parse"
                             }
@@ -150,13 +156,8 @@ fn App() -> Element {
                             (
                                 "CFG".to_string(),
                                 rsx! {
-                                    tabs::Tabs {
-                                        tabs: output_cfg.read().clone().into_iter().map(|s| {
-                                            (s.0.clone(), rsx! {
-                                                "{s.1}"
-                                            })
-                                        }).collect::<Vec<_>>(),
-                                    }
+                                    tabs::Tabs { tabs : output_cfg.read().clone().into_iter().map(| s | { (s
+                                    .0.clone(), rsx! { "{s.1}" }) }).collect::< Vec < _ >> (), }
                                 },
                             ),
                         ]
