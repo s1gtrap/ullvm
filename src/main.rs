@@ -48,7 +48,7 @@ fn App() -> Element {
     let mut output_json = use_signal(|| "".to_owned());
     let mut output_debug = use_signal(|| "".to_owned());
     let mut output_abstract = use_signal(|| "".to_owned());
-    let mut output_cfg = use_signal(|| vec![(String::new(), String::new())]);
+    let mut output_cfg = use_signal(|| vec![(String::new(), String::new(), String::new())]);
     rsx! {
         main { class: "w-full bg-slate-100",
             div { class: "flex",
@@ -115,33 +115,47 @@ fn App() -> Element {
                                     let m: ir::Module = serde_json::from_str(&s).unwrap();
                                     tracing::info!("abstract: {:?}", m);
                                     *output_abstract.write() = format!("{:#?}", m);
+                                    let window = web_sys::window().unwrap();
+                                    let hpccWasm = js_sys::Reflect::get(&window, &JsValue::from_str("@hpcc-js/wasm"))
+                                        .unwrap();
+                                    tracing::info!("{hpccWasm:?}");
+                                    let graphviz = js_sys::Reflect::get(&hpccWasm, &JsValue::from_str("Graphviz"))
+                                        .unwrap();
+                                    tracing::info!("{graphviz:?}");
+                                    let load = js_sys::Reflect::get(&graphviz, &JsValue::from_str("load")).unwrap();
+                                    let load: &js_sys::Function = load.dyn_ref().unwrap();
+                                    let promise: js_sys::Promise = load
+                                        .call0(&graphviz)
+                                        .unwrap()
+                                        .dyn_into()
+                                        .unwrap();
+                                    tracing::info!("{promise:?}");
+                                    let graphviz = wasm_bindgen_futures::JsFuture::from(promise).await.unwrap();
+                                    let dot = js_sys::Reflect::get(&graphviz, &JsValue::from_str("dot")).unwrap();
+                                    let dot: &js_sys::Function = dot.dyn_ref().unwrap();
+                                    tracing::info!("{dot:?}");
                                     *output_cfg.write() = m
                                         .functions
                                         .iter()
                                         .map(|f| {
                                             let cfg = ir::cfg(&f);
-                                            (
-                                                f.name.clone(),
-                                                format!(
-                                                    "{:?}",
-                                                    petgraph::dot::Dot::with_config(
-                                                        &cfg,
-                                                        &[petgraph::dot::Config::EdgeNoLabel],
-                                                    ),
+                                            let cfg_dot = format!(
+                                                "{:?}",
+                                                petgraph::dot::Dot::with_config(
+                                                    &cfg,
+                                                    &[petgraph::dot::Config::EdgeNoLabel],
                                                 ),
-                                            )
+                                            );
+                                            let cfg: JsValue = dot
+                                                .call1(&graphviz, &JsValue::from_str(&cfg_dot))
+                                                .unwrap()
+                                                .dyn_into()
+                                                .unwrap();
+                                            tracing::info!("{cfg:?}");
+                                            let svg = cfg.dyn_ref::<js_sys::JsString>().unwrap().to_string();
+                                            (f.name.clone(), cfg_dot, svg.into())
                                         })
                                         .collect();
-                                    let window = web_sys::window().unwrap();
-                                    let hpccWasm = js_sys::Reflect::get(&window, &JsValue::from_str("@hpcc-js/wasm")).unwrap();
-                                    tracing::info!("{hpccWasm:?}");
-                                    let graphviz  = js_sys::Reflect::get(&hpccWasm, &JsValue::from_str("Graphviz")).unwrap();
-                                    tracing::info!("{graphviz:?}");
-                                    let load = js_sys::Reflect::get(&graphviz, &JsValue::from_str("load")).unwrap();
-                                    let load: &js_sys::Function  = load.dyn_ref().unwrap();
-                                    let promise = load.call0(&graphviz);
-                                    tracing::info!("{promise:?}");
-                                    //log::info!("{graphviz:?}");
                                 },
                                 "Parse"
                             }
@@ -173,8 +187,8 @@ fn App() -> Element {
                                 "CFG".to_string(),
                                 rsx! {
                                     tabs::Tabs { tabs : output_cfg.read().clone().into_iter().map(| s | { (s
-                                    .0.clone(), rsx! { code::Code { code : "{s.1}" } }) }).collect::< Vec < _
-                                    >> (), }
+                                    .0.clone(), rsx! { div { div { dangerous_inner_html : "{s.2}", }
+                                    code::Code { code : "{s.1}" } } }) }).collect::< Vec < _ >> (), }
                                 },
                             ),
                         ]
