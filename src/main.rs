@@ -39,7 +39,7 @@ const EXAMPLES: &[(&str, &str)] = &test!["min.ll", "ret.ll", "fib.ll", "brainfuc
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = Graphviz)]
-    async fn load(g: JsValue) -> wasm_bindgen::JsValue;
+    async fn load(g: &JsValue) -> wasm_bindgen::JsValue;
 }
 
 #[component]
@@ -85,7 +85,7 @@ fn App() -> Element {
                         div { class: "flex-none",
                             button {
                                 class: "h-12 w-full bg-slate-100",
-                                onclick: move |_| {
+                                onclick: move |_| async move {
                                     Module::ccall(
                                         JsValue::from_str("parse"),
                                         JsValue::NULL,
@@ -134,8 +134,14 @@ fn App() -> Element {
                                         .collect();
                                     let window = web_sys::window().unwrap();
                                     let hpccWasm = js_sys::Reflect::get(&window, &JsValue::from_str("@hpcc-js/wasm")).unwrap();
+                                    tracing::info!("{hpccWasm:?}");
                                     let graphviz  = js_sys::Reflect::get(&hpccWasm, &JsValue::from_str("Graphviz")).unwrap();
-                                    load(graphviz);
+                                    tracing::info!("{graphviz:?}");
+                                    let load = js_sys::Reflect::get(&graphviz, &JsValue::from_str("load")).unwrap();
+                                    let load: &js_sys::Function  = load.dyn_ref().unwrap();
+                                    let promise = load.call0(&graphviz);
+                                    tracing::info!("{promise:?}");
+                                    //log::info!("{graphviz:?}");
                                 },
                                 "Parse"
                             }
