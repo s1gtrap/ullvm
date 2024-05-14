@@ -42,7 +42,7 @@ fn App() -> Element {
     let mut output_json = use_signal(|| "".to_owned());
     let mut output_debug = use_signal(|| "".to_owned());
     let mut output_abstract = use_signal(|| "".to_owned());
-    let mut output_cfg = use_signal(|| "".to_owned());
+    let mut output_cfg = use_signal(|| vec![(String::new(), String::new())]);
     rsx! {
         main { class: "w-full bg-indigo",
             div { class: "flex",
@@ -116,10 +116,10 @@ fn App() -> Element {
                                         "{:?}", petgraph::dot::Dot::with_config(& cfg, &
                                         [petgraph::dot::Config::EdgeNoLabel])
                                     );
-                                    *output_cfg.write() = format!(
+                                    *output_cfg.write() = vec![(m.functions[0].name.clone(), format!(
                                         "{:?}",
                                         petgraph::dot::Dot::with_config(&cfg, &[petgraph::dot::Config::EdgeNoLabel]),
-                                    );
+                                    ))];
                                 },
                                 "Parse"
                             }
@@ -130,27 +130,33 @@ fn App() -> Element {
                     tabs::Tabs {
                         tabs: vec![
                             (
-                                "JSON",
+                                "JSON".to_string(),
                                 rsx! {
                                     code::Code { code : output_json }
                                 },
                             ),
                             (
-                                "Debug",
+                                "Debug".to_string(),
                                 rsx! {
                                     code::Code { code : output_debug }
                                 },
                             ),
                             (
-                                "Abstract",
+                                "Abstract".to_string(),
                                 rsx! {
                                     code::Code { code : output_abstract }
                                 },
                             ),
                             (
-                                "CFG",
+                                "CFG".to_string(),
                                 rsx! {
-                                    code::Code { code : output_cfg }
+                                    tabs::Tabs {
+                                        tabs: output_cfg.read().clone().into_iter().map(|s| {
+                                            (s.0.clone(), rsx! {
+                                                "{s.1}"
+                                            })
+                                        }).collect::<Vec<_>>(),
+                                    }
                                 },
                             ),
                         ]

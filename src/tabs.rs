@@ -3,7 +3,7 @@
 use dioxus::prelude::*;
 
 #[component]
-pub fn Tabs(tabs: Vec<(&'static str, Element)>) -> Element {
+pub fn Tabs(tabs: Vec<(String, Element)>) -> Element {
     let mut active = use_signal(|| 0);
     rsx! {
         div { class: "flex flex-col h-screen",
