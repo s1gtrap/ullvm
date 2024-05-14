@@ -4,6 +4,9 @@ use dioxus::prelude::*;
 use tracing::Level;
 use wasm_bindgen::prelude::*;
 
+mod code;
+mod tabs;
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = "Module")]
@@ -35,16 +38,17 @@ const EXAMPLES: &[(&str, &str)] = &test!["min.ll", "ret.ll", "fib.ll", "brainfuc
 #[component]
 fn App() -> Element {
     let mut input = use_signal(|| "".to_owned());
-    let mut output = use_signal(|| "".to_owned());
+    let mut output_json = use_signal(|| "".to_owned());
+    let mut output_debug = use_signal(|| "".to_owned());
     rsx! {
         main { class: "w-full bg-indigo",
             div { class: "flex",
-                div { class: "flex-1",
+                div { class: "w-1/2 lg:w-1/3",
                     div { class: "flex flex-col h-screen",
                         div { class: "flex-none",
                             select {
                                 id: "example-picker",
-                                class: "h-12 w-full",
+                                class: "h-12 w-full bg-slate-100",
                                 onchange: move |e: Event<FormData>| {
                                     let pick = e.data.value().parse::<usize>().unwrap() - 1;
                                     *input.write() = EXAMPLES[pick].1.to_string();
@@ -71,7 +75,7 @@ fn App() -> Element {
                         }
                         div { class: "flex-none",
                             button {
-                                class: "h-12 w-full",
+                                class: "h-12 w-full bg-slate-100",
                                 onclick: move |_| {
                                     Module::ccall(
                                         JsValue::from_str("parse"),
@@ -95,17 +99,33 @@ fn App() -> Element {
                                         .unwrap();
                                     tracing::info!("{}", out);
                                     let s: String = out.into();
+                                    *output_json.write() = s.clone();
                                     let m: llvm_ir::Module = serde_json::from_str(&s).unwrap();
                                     tracing::info!("{:?}", m);
-                                    *output.write() = format!("{:#?}", m);
+                                    *output_debug.write() = format!("{:#?}", m);
                                 },
                                 "Parse"
                             }
                         }
                     }
                 }
-                div { class: "flex-1 h-screen font-mono whitespace-pre overflow-y-scroll",
-                    div { "{output}" }
+                div { class: "w-1/2 lg:w-2/3",
+                    tabs::Tabs {
+                        tabs: vec![
+                            (
+                                "JSON",
+                                rsx! {
+                                    code::Code { code : output_json }
+                                },
+                            ),
+                            (
+                                "Debug",
+                                rsx! {
+                                    code::Code { code : output_debug }
+                                },
+                            ),
+                        ]
+                    }
                 }
             }
         }
