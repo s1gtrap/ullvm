@@ -102,9 +102,14 @@ fn App() -> Element {
                                     tracing::info!("{}", out);
                                     let s: String = out.into();
                                     *output_json.write() = s.clone();
-                                    let m: ir::Module = serde_json::from_str(&s).unwrap();
-                                    tracing::info!("{:?}", m);
+
+                                    let m: llvm_ir::Module = serde_json::from_str(&s).unwrap();
+                                    tracing::info!("llvm-ir: {:?}", m);
                                     *output_debug.write() = format!("{:#?}", m);
+
+                                    let m: ir::Module = serde_json::from_str(&s).unwrap();
+                                    tracing::info!("abstract: {:?}", m);
+                                    *output_abstract.write() = format!("{:#?}", m);
                                 },
                                 "Parse"
                             }
@@ -129,7 +134,7 @@ fn App() -> Element {
                             (
                                 "Abstract",
                                 rsx! {
-                                    code::Code { code : output_debug }
+                                    code::Code { code : output_abstract }
                                 },
                             ),
                         ]
