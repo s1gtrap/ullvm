@@ -554,32 +554,16 @@ video {
   --tw-contain-style:  ;
 }
 
-.static {
-  position: static;
-}
-
-.m-2 {
-  margin: 0.5rem;
-}
-
-.m-1 {
-  margin: 0.25rem;
+.ml-1 {
+  margin-left: 0.25rem;
 }
 
 .mr-1 {
   margin-right: 0.25rem;
 }
 
-.ml-1 {
-  margin-left: 0.25rem;
-}
-
 .box-border {
   box-sizing: border-box;
-}
-
-.box-content {
-  box-sizing: content-box;
 }
 
 .flex {
@@ -620,10 +604,6 @@ video {
 
 .overflow-scroll {
   overflow: scroll;
-}
-
-.whitespace-nowrap {
-  white-space: nowrap;
 }
 
 .whitespace-pre {

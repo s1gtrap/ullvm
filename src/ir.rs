@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 use petgraph::graph::{DiGraph, NodeIndex};
 
@@ -18,11 +18,20 @@ pub struct Function {
     pub basic_blocks: Vec<BasicBlock>,
 }
 
-#[derive(Debug, Eq, Hash, PartialEq, serde::Deserialize)]
+#[derive(Eq, Hash, PartialEq, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Name {
     Name(String),
     Number(usize),
+}
+
+impl fmt::Debug for Name {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Name::Name(n) => write!(f, "%{}", n),
+            Name::Number(n) => write!(f, "%{}", n),
+        }
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
