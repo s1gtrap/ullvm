@@ -554,8 +554,16 @@ video {
   --tw-contain-style:  ;
 }
 
-.static {
-  position: static;
+.ml-1 {
+  margin-left: 0.25rem;
+}
+
+.mr-1 {
+  margin-right: 0.25rem;
+}
+
+.box-border {
+  box-sizing: border-box;
 }
 
 .flex {
@@ -605,6 +613,11 @@ video {
 .bg-slate-100 {
   --tw-bg-opacity: 1;
   background-color: rgb(241 245 249 / var(--tw-bg-opacity));
+}
+
+.bg-white {
+  --tw-bg-opacity: 1;
+  background-color: rgb(255 255 255 / var(--tw-bg-opacity));
 }
 
 .font-mono {
