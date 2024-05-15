@@ -114,7 +114,7 @@ pub fn cfg(f: &Function) -> DiGraph<&Name, ()> {
 
 pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
     tracing::info!("lva");
-    let mut block_indices = f
+    let (_, block_indices) = f
         .basic_blocks
         .iter()
         .fold((0, HashMap::new()), |(l, mut m), b| {
@@ -125,13 +125,33 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
         vec![(HashSet::new(), HashSet::new()); f.basic_blocks.iter().map(|b| b.insts.len()).sum()];
     for (i, (ref mut r#in, ref mut out)) in lives.iter_mut().enumerate().rev() {
         tracing::info!("{i}");
-        //HashSet::from_iter()
+        let (block_idx, block) = block_indices
+            .iter()
+            .filter(|&(j, _)| i <= *j)
+            .max_by_key(|&(j, _)| *j)
+            .unwrap();
+        tracing::info!("{block_idx}");
+        let def = &block.insts[i - block_idx].def;
+        tracing::info!("def = {:?}", def.iter().collect::<HashSet<_>>());
+        let r#use: HashSet<_> = block.insts[i - block_idx]
+            .uses
+            .iter()
+            .filter_map(|o| {
+                if !o.constant {
+                    Some(o.name.as_ref().unwrap())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        tracing::info!("use = {:?}", r#use);
     }
     lives
 }
 
 #[test]
 fn test_lva() {
+    tracing_subscriber::fmt::init();
     assert_eq!(
         lva(&Function {
             name: "main".to_string(),
