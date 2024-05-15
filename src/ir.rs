@@ -132,7 +132,8 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
             .unwrap();
         tracing::info!("{block_idx}");
         let def = &block.insts[i - block_idx].def;
-        tracing::info!("def = {:?}", def.iter().collect::<HashSet<_>>());
+        let def: HashSet<_> = def.iter().collect();
+        tracing::info!("def[{i}] = {:?}", def);
         let r#use: HashSet<_> = block.insts[i - block_idx]
             .uses
             .iter()
@@ -144,7 +145,9 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
                 }
             })
             .collect();
-        tracing::info!("use = {:?}", r#use);
+        tracing::info!("use[{i}] = {:?}", r#use);
+        *r#in = r#use.union(&(&*out - &def)).cloned().collect();
+        tracing::info!(" in[{i}] = {:?}", r#use);
     }
     lives
 }
