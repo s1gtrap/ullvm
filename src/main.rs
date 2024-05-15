@@ -138,7 +138,7 @@ fn App() -> Element {
                                         .functions
                                         .iter()
                                         .map(|f| {
-                                            let cfg = ir::cfg(&f);
+                                            let cfg = ir::cfg(f);
                                             let cfg_dot = format!(
                                                 "{:?}",
                                                 petgraph::dot::Dot::with_config(
@@ -153,6 +153,7 @@ fn App() -> Element {
                                                 .unwrap();
                                             tracing::info!("{cfg:?}");
                                             let svg = cfg.dyn_ref::<js_sys::JsString>().unwrap().to_string();
+                                            ir::lva(f);
                                             (f.name.clone(), cfg_dot, svg.into())
                                         })
                                         .collect();

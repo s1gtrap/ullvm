@@ -1,4 +1,5 @@
-use std::{collections::HashMap, fmt};
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 
 use petgraph::graph::{DiGraph, NodeIndex};
 
@@ -109,4 +110,77 @@ pub fn cfg(f: &Function) -> DiGraph<&Name, ()> {
         }
     }
     g
+}
+
+pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
+    tracing::info!("lva");
+    let mut block_indices = f
+        .basic_blocks
+        .iter()
+        .fold((0, HashMap::new()), |(l, mut m), b| {
+            m.insert(l, b);
+            (l + b.insts.len(), m)
+        });
+    let mut lives =
+        vec![(HashSet::new(), HashSet::new()); f.basic_blocks.iter().map(|b| b.insts.len()).sum()];
+    for (i, (ref mut r#in, ref mut out)) in lives.iter_mut().enumerate().rev() {
+        tracing::info!("{i}");
+        //HashSet::from_iter()
+    }
+    lives
+}
+
+#[test]
+fn test_lva() {
+    assert_eq!(
+        lva(&Function {
+            name: "main".to_string(),
+            params: vec![
+                Param {
+                    name: Name::Name("argc".to_string()),
+                    ty: Type {
+                        id: 13,
+                        name: "i32".to_string(),
+                    },
+                },
+                Param {
+                    name: Name::Name("argv".to_string()),
+                    ty: Type {
+                        id: 15,
+                        name: "ptr".to_string(),
+                    },
+                },
+            ],
+            basic_blocks: vec![BasicBlock {
+                name: Name::Number(0),
+                insts: vec![Instruction {
+                    def: None,
+                    uses: vec![Operand {
+                        constant: false,
+                        name: Some(Name::Name("argc".to_string())),
+                        ty: Type {
+                            id: 13,
+                            name: "i32".to_string(),
+                        },
+                    },],
+                },],
+                term: Terminator {
+                    opcode: 1,
+                    def: None,
+                    uses: vec![Operand {
+                        constant: false,
+                        name: Some(Name::Name("argc".to_string())),
+                        ty: Type {
+                            id: 13,
+                            name: "i32".to_string(),
+                        },
+                    }],
+                },
+            }],
+        }),
+        vec![(
+            HashSet::from([&Name::Name("argc".to_string())]),
+            HashSet::new(),
+        )],
+    );
 }
