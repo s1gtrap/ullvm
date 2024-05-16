@@ -145,7 +145,7 @@ fn App() -> Element {
                                         .functions
                                         .iter()
                                         .map(|f| {
-                                            let cfg = ir::cfg(f);
+                                            let (_blocks, cfg) = ir::cfg(f);
                                             let cfg_dot = format!(
                                                 "{:?}",
                                                 petgraph::dot::Dot::with_config(
