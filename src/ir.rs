@@ -130,13 +130,14 @@ pub fn cfg(
 pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
     let (blocks, cfg) = cfg(f);
     tracing::info!("lva");
-    let (_, block_indices) =
-        f.basic_blocks
-            .iter()
-            .fold((f.params.len(), HashMap::new()), |(l, mut m), b| {
-                m.insert(l, b);
-                (l + b.insts.len() + 1, m)
-            });
+    let (_, block_indices, bi): (_, _, HashMap<&Name, _>) = f.basic_blocks.iter().fold(
+        (f.params.len(), HashMap::new(), HashMap::new()),
+        |(l, mut m, mut n), b| {
+            m.insert(l, b);
+            n.insert(&b.name, l - f.params.len());
+            (l + b.insts.len() + 1, m, n)
+        },
+    );
     //tracing::info!("{block_indices:#?}");
     let mut lives = vec![
         (HashSet::new(), HashSet::new());
@@ -232,9 +233,31 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
                 //tracing::info!("{:?}", node);
                 let succ: Vec<_> = cfg.neighbors(idx).collect();
                 for succ in cfg.neighbors(idx) {
-                    // find phis in each block
                     let name = cfg.node_weight(succ).unwrap();
                     let (source, _) = blocks.get(name).unwrap();
+                    tracing::info!("{:?} is a successor of {:?}", source.name, i);
+                    tracing::info!("  copy from in[{}] to out[{}]", bi[&source.name], j);
+                    tracing::info!(
+                        "   {:?} U {:?} = {:?}",
+                        lives[j].0,
+                        lives[bi[&source.name]].1,
+                        j
+                    );
+                    lives[j].1 = lives[j]
+                        .1
+                        .union(&lives[bi[&source.name]].0)
+                        .copied()
+                        .collect();
+
+                    // copy in's from each succesor
+                    /*tracing::info!("{} <- {}", i, bi[&source.name]);
+                    lives[j].1 = lives[j]
+                        .1
+                        .union(&lives[bi[&source.name]].0)
+                        .copied()
+                        .collect();*/
+
+                    // find phis in each block
                     //tracing::info!("{:?}", cfg.node_weight(succ).unwrap());
                     for phi in source.insts.iter().take_while(|i| i.opcode == 55 /* phi */) {
                         //tracing::info!("phi: {:?}", phi);
@@ -245,7 +268,7 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
                             //tracing::info!("yses: {:?}", uses);
                             //tracing::info!("{:?} {:?}", source_name, block.name);
                             if !uses.constant && *source_name == block.name {
-                                tracing::info!("{:?}", (uses.name.as_ref().unwrap()));
+                                //tracing::info!("{:?}", uses.name.as_ref().unwrap());
                                 lives[j].1.insert(uses.name.as_ref().unwrap());
                             }
                         }
@@ -559,11 +582,11 @@ fn test_lva() {
             ),
             (
                 HashSet::from([&Name::Number(0), &Name::Number(8)]),
-                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::from([&Name::Number(0), &Name::Number(8), &Name::Number(9)]),
             ),
             (
-                HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                HashSet::from([&Name::Number(8)]),
+                HashSet::from([&Name::Number(0), &Name::Number(8), &Name::Number(9)]),
+                HashSet::from([&Name::Number(0), &Name::Number(8)]),
             ),
         ],
     );
