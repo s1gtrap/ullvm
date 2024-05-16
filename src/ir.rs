@@ -79,6 +79,8 @@ pub struct Instruction {
     pub def: Option<Name>,
     #[serde(rename = "Uses")]
     pub uses: Vec<Operand>,
+    #[serde(rename = "Blocks")]
+    pub blocks: Option<Vec<Name>>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -103,16 +105,16 @@ pub fn cfg(
         .basic_blocks
         .iter()
         .map(|b| {
-            tracing::info!("adding {:?}", b.name);
+            //tracing::info!("adding {:?}", b.name);
             (&b.name, (b, g.add_node(&b.name)))
         })
         .collect();
-    tracing::info!("blocks = {blocks:?}");
+    //tracing::info!("blocks = {blocks:?}");
     for b in &f.basic_blocks {
-        tracing::info!("term = {:?}", b.term);
+        //tracing::info!("term = {:?}", b.term);
         match (b.term.opcode, &b.term.uses[..]) {
             (2, &[ref l]) => {
-                tracing::info!("l = {:?}", l.name);
+                //tracing::info!("l = {:?}", l.name);
                 g.add_edge(blocks[&b.name].1, blocks[&l.name.as_ref().unwrap()].1, ());
             }
             (2, &[_, ref l, ref r]) => {
@@ -135,7 +137,7 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
                 m.insert(l, b);
                 (l + b.insts.len() + 1, m)
             });
-    tracing::info!("{block_indices:#?}");
+    //tracing::info!("{block_indices:#?}");
     let mut lives = vec![
         (HashSet::new(), HashSet::new());
         f.basic_blocks.iter().map(|b| b.insts.len() + 1).sum()
@@ -156,24 +158,30 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
 
             // in[i] = use[i] U (out[i] - def[i])
             if let Some(inst) = &block.insts.get(i - (block_idx)) {
+                //tracing::info!("some {i}");
                 //tracing::info!(" insts[{}] = {:?}", i - block_idx, inst);
                 let def = &block.insts[i - block_idx].def;
                 let def: HashSet<_> = def.iter().collect();
-                let r#use: HashSet<_> = block.insts[i - block_idx]
-                    .uses
-                    .iter()
-                    .filter_map(|o| {
-                        if !o.constant && o.ty.id != 8 {
-                            Some(o.name.as_ref().unwrap())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
+                let r#use: HashSet<_> = if inst.opcode != 55 {
+                    block.insts[i - block_idx]
+                        .uses
+                        .iter()
+                        .filter_map(|o| {
+                            if !o.constant && o.ty.id != 8 {
+                                Some(o.name.as_ref().unwrap())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                } else {
+                    HashSet::new()
+                };
+                //tracing::info!("use[{i}] = {:?}", r#use);
                 //tracing::info!("use[{i}] = {:?}", r#use);
                 lives[j].0 = r#use.union(&(&lives[j].1 - &def)).cloned().collect();
-                tracing::info!(" in[{i}] = {:?}", r#use);
             } else {
+                //tracing::info!("none");
                 //tracing::info!(" term = {:?}", &block.term);
                 let def = &block.term.def;
                 let def: HashSet<_> = def.iter().collect();
@@ -190,15 +198,30 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
                     })
                     .collect();
                 //tracing::info!("use[{i}] = {:?}", r#use);
+                //tracing::info!("use[{i}] = {:?}", r#use);
                 lives[j].0 = r#use.union(&(&lives[j].1 - &def)).cloned().collect();
-                tracing::info!(" in[{i}] = {:?}", r#use);
             }
+            //tracing::info!(" in[{i}] = {:?}", lives[j].0);
+        }
+
+        for j in (0..lives.len()).rev() {
+            let i = j + f.params.len();
+            //tracing::info!("i = {i}");
+            let (block_idx, block) = block_indices
+                .iter()
+                .filter(|&(j, _)| *j <= i)
+                .max_by_key(|&(j, _)| *j)
+                .unwrap();
 
             // out[i] = U_s=succ[i] (in[s] U phis[s])
-            if let Some(_inst) = &block.insts.get(i - (block_idx) + 1) {
+            if let Some(_inst) = &block.insts.get(i - (block_idx)) {
+                //tracing::info!("some {i}");
                 // all insts only have one subsequent successor
+
+                //tracing::info!("   setting out[{:?}] to in[{:?}]", i, i + 1);
                 lives[j].1 = lives[j + 1].0.clone();
             } else {
+                //tracing::info!("none");
                 use petgraph::visit::IntoNodeReferences;
                 // terminators must be looked up in the cfg
                 //tracing::info!("searching for {:?} {:?}", block_idx, block);
@@ -206,14 +229,32 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
                     .node_references()
                     .find(|(_, n)| ***n == block.name)
                     .unwrap();
-                tracing::info!("{:?}", node);
+                //tracing::info!("{:?}", node);
                 let succ: Vec<_> = cfg.neighbors(idx).collect();
                 for succ in cfg.neighbors(idx) {
-                    tracing::info!("{:?}", cfg.node_weight(succ).unwrap());
+                    // find phis in each block
+                    let name = cfg.node_weight(succ).unwrap();
+                    let (source, _) = blocks.get(name).unwrap();
+                    //tracing::info!("{:?}", cfg.node_weight(succ).unwrap());
+                    for phi in source.insts.iter().take_while(|i| i.opcode == 55 /* phi */) {
+                        //tracing::info!("phi: {:?}", phi);
+                        for (source_name, uses) in
+                            phi.blocks.as_ref().unwrap().iter().zip(&phi.uses)
+                        {
+                            //tracing::info!("source_block: {:?}", source);
+                            //tracing::info!("yses: {:?}", uses);
+                            //tracing::info!("{:?} {:?}", source_name, block.name);
+                            if !uses.constant && *source_name == block.name {
+                                tracing::info!("{:?}", (uses.name.as_ref().unwrap()));
+                                lives[j].1.insert(uses.name.as_ref().unwrap());
+                            }
+                        }
+                    }
                 }
             }
+            //tracing::info!("out[{i}] = {:?}", lives[j].1);
         }
-        tracing::info!("lives = {:?}", lives);
+        //tracing::info!("lives = {:?}", lives);
     }
     lives
 }
@@ -289,11 +330,11 @@ fn test_lva() {
                     name: Name::Number(2),
                     insts: vec![Instruction {
                         opcode: 53,
-                        def: Some(Name::Number(3)),
+                        def: Some(Name::Number(3),),
                         uses: vec![
                             Operand {
                                 constant: false,
-                                name: Some(Name::Number(0)),
+                                name: Some(Name::Number(0),),
                                 ty: Type {
                                     id: 13,
                                     name: "i32".to_string(),
@@ -308,6 +349,7 @@ fn test_lva() {
                                 },
                             },
                         ],
+                        blocks: None,
                     },],
                     term: Terminator {
                         opcode: 2,
@@ -315,7 +357,7 @@ fn test_lva() {
                         uses: vec![
                             Operand {
                                 constant: false,
-                                name: Some(Name::Number(3)),
+                                name: Some(Name::Number(3),),
                                 ty: Type {
                                     id: 13,
                                     name: "i1".to_string(),
@@ -323,7 +365,7 @@ fn test_lva() {
                             },
                             Operand {
                                 constant: false,
-                                name: Some(Name::Number(4)),
+                                name: Some(Name::Number(4),),
                                 ty: Type {
                                     id: 8,
                                     name: "label".to_string(),
@@ -331,7 +373,7 @@ fn test_lva() {
                             },
                             Operand {
                                 constant: false,
-                                name: Some(Name::Number(5)),
+                                name: Some(Name::Number(5),),
                                 ty: Type {
                                     id: 8,
                                     name: "label".to_string(),
@@ -353,7 +395,7 @@ fn test_lva() {
                                 id: 13,
                                 name: "i32".to_string(),
                             },
-                        }],
+                        },],
                     },
                 },
                 BasicBlock {
@@ -361,11 +403,11 @@ fn test_lva() {
                     insts: vec![
                         Instruction {
                             opcode: 55,
-                            def: Some(Name::Number(6)),
+                            def: Some(Name::Number(6),),
                             uses: vec![
                                 Operand {
                                     constant: false,
-                                    name: Some(Name::Number(8)),
+                                    name: Some(Name::Number(8),),
                                     ty: Type {
                                         id: 13,
                                         name: "i32".to_string(),
@@ -380,10 +422,11 @@ fn test_lva() {
                                     },
                                 },
                             ],
+                            blocks: Some(vec![Name::Number(5), Name::Number(2),],),
                         },
                         Instruction {
                             opcode: 56,
-                            def: Some(Name::Number(7)),
+                            def: Some(Name::Number(7),),
                             uses: vec![
                                 Operand {
                                     constant: true,
@@ -395,7 +438,7 @@ fn test_lva() {
                                 },
                                 Operand {
                                     constant: false,
-                                    name: Some(Name::Number(6)),
+                                    name: Some(Name::Number(6),),
                                     ty: Type {
                                         id: 13,
                                         name: "i32".to_string(),
@@ -410,14 +453,15 @@ fn test_lva() {
                                     },
                                 },
                             ],
+                            blocks: None,
                         },
                         Instruction {
                             opcode: 13,
-                            def: Some(Name::Number(8)),
+                            def: Some(Name::Number(8),),
                             uses: vec![
                                 Operand {
                                     constant: false,
-                                    name: Some(Name::Number(6)),
+                                    name: Some(Name::Number(6),),
                                     ty: Type {
                                         id: 13,
                                         name: "i32".to_string(),
@@ -432,14 +476,15 @@ fn test_lva() {
                                     },
                                 },
                             ],
+                            blocks: None,
                         },
                         Instruction {
                             opcode: 53,
-                            def: Some(Name::Number(9)),
+                            def: Some(Name::Number(9),),
                             uses: vec![
                                 Operand {
                                     constant: false,
-                                    name: Some(Name::Number(8)),
+                                    name: Some(Name::Number(8),),
                                     ty: Type {
                                         id: 13,
                                         name: "i32".to_string(),
@@ -447,13 +492,14 @@ fn test_lva() {
                                 },
                                 Operand {
                                     constant: false,
-                                    name: Some(Name::Number(0)),
+                                    name: Some(Name::Number(0),),
                                     ty: Type {
                                         id: 13,
                                         name: "i32".to_string(),
                                     },
                                 },
                             ],
+                            blocks: None,
                         },
                     ],
                     term: Terminator {
@@ -462,7 +508,7 @@ fn test_lva() {
                         uses: vec![
                             Operand {
                                 constant: false,
-                                name: Some(Name::Number(9)),
+                                name: Some(Name::Number(9),),
                                 ty: Type {
                                     id: 13,
                                     name: "i1".to_string(),
@@ -470,7 +516,7 @@ fn test_lva() {
                             },
                             Operand {
                                 constant: false,
-                                name: Some(Name::Number(5)),
+                                name: Some(Name::Number(5),),
                                 ty: Type {
                                     id: 8,
                                     name: "label".to_string(),
@@ -478,7 +524,7 @@ fn test_lva() {
                             },
                             Operand {
                                 constant: false,
-                                name: Some(Name::Number(4)),
+                                name: Some(Name::Number(4),),
                                 ty: Type {
                                     id: 8,
                                     name: "label".to_string(),
