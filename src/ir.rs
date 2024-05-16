@@ -130,8 +130,8 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
         tracing::info!("{}", bb.insts.len());
     }
     for _ in 0..10 {
-        for (i, (ref mut r#in, ref mut out)) in lives.iter_mut().enumerate().rev() {
-            let i = i + f.params.len();
+        for j in (0..lives.len()).rev() {
+            let i = j + f.params.len();
             tracing::info!("i = {i}");
             let (block_idx, block) = block_indices
                 .iter()
@@ -157,7 +157,7 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
                     })
                     .collect();
                 tracing::info!("use[{i}] = {:?}", r#use);
-                *r#in = r#use.union(&(&*out - &def)).cloned().collect();
+                lives[j].0 = r#use.union(&(&lives[j].1 - &def)).cloned().collect();
                 tracing::info!(" in[{i}] = {:?}", r#use);
             } else {
                 tracing::info!(" term = {:?}", &block.term);
@@ -176,12 +176,12 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
                     })
                     .collect();
                 tracing::info!("use[{i}] = {:?}", r#use);
-                *r#in = r#use.union(&(&*out - &def)).cloned().collect();
+                lives[j].0 = r#use.union(&(&lives[j].1 - &def)).cloned().collect();
                 tracing::info!(" in[{i}] = {:?}", r#use);
             }
 
             // out[i] = U_s=succ[i] (in[s] U phis[s])
-            if let Some(inst) = &block.insts.get(i - (block_idx) + 1) {
+            if let Some(_inst) = &block.insts.get(i - (block_idx) + 1) {
                 // all insts only have one subsequent successor
             } else {
                 // terminators must be looked up in the cfg
