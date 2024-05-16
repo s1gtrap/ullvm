@@ -119,35 +119,59 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
         .iter()
         .fold((0, HashMap::new()), |(l, mut m), b| {
             m.insert(l, b);
-            (l + b.insts.len(), m)
+            (l + b.insts.len() + 1, m)
         });
-    let mut lives =
-        vec![(HashSet::new(), HashSet::new()); f.basic_blocks.iter().map(|b| b.insts.len()).sum()];
+    tracing::info!("{block_indices:#?}");
+    let mut lives = vec![
+        (HashSet::new(), HashSet::new());
+        f.basic_blocks.iter().map(|b| b.insts.len() + 1).sum()
+    ];
     for (i, (ref mut r#in, ref mut out)) in lives.iter_mut().enumerate().rev() {
-        tracing::info!("{i}");
+        tracing::info!("i = {i}");
         let (block_idx, block) = block_indices
             .iter()
-            .filter(|&(j, _)| i <= *j)
+            .filter(|&(j, _)| *j <= i)
             .max_by_key(|&(j, _)| *j)
             .unwrap();
         tracing::info!("{block_idx}");
-        let def = &block.insts[i - block_idx].def;
-        let def: HashSet<_> = def.iter().collect();
-        tracing::info!("def[{i}] = {:?}", def);
-        let r#use: HashSet<_> = block.insts[i - block_idx]
-            .uses
-            .iter()
-            .filter_map(|o| {
-                if !o.constant {
-                    Some(o.name.as_ref().unwrap())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        tracing::info!("use[{i}] = {:?}", r#use);
-        *r#in = r#use.union(&(&*out - &def)).cloned().collect();
-        tracing::info!(" in[{i}] = {:?}", r#use);
+        if let Some(inst) = &block.insts.get(i - block_idx) {
+            tracing::info!(" insts[{}] = {:?}", i - block_idx, inst);
+            let def = &block.insts[i - block_idx].def;
+            let def: HashSet<_> = def.iter().collect();
+            let r#use: HashSet<_> = block.insts[i - block_idx]
+                .uses
+                .iter()
+                .filter_map(|o| {
+                    if !o.constant {
+                        Some(o.name.as_ref().unwrap())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            tracing::info!("use[{i}] = {:?}", r#use);
+            *r#in = r#use.union(&(&*out - &def)).cloned().collect();
+            tracing::info!(" in[{i}] = {:?}", r#use);
+        } else {
+            tracing::info!(" term = {:?}", &block.term);
+            let def = &block.term.def;
+            let def: HashSet<_> = def.iter().collect();
+            let r#use: HashSet<_> = block
+                .term
+                .uses
+                .iter()
+                .filter_map(|o| {
+                    if !o.constant {
+                        Some(o.name.as_ref().unwrap())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            tracing::info!("use[{i}] = {:?}", r#use);
+            *r#in = r#use.union(&(&*out - &def)).cloned().collect();
+            tracing::info!(" in[{i}] = {:?}", r#use);
+        }
     }
     lives
 }
@@ -176,17 +200,7 @@ fn test_lva() {
             ],
             basic_blocks: vec![BasicBlock {
                 name: Name::Number(0),
-                insts: vec![Instruction {
-                    def: None,
-                    uses: vec![Operand {
-                        constant: false,
-                        name: Some(Name::Name("argc".to_string())),
-                        ty: Type {
-                            id: 13,
-                            name: "i32".to_string(),
-                        },
-                    },],
-                },],
+                insts: vec![],
                 term: Terminator {
                     opcode: 1,
                     def: None,
