@@ -262,40 +262,27 @@ fn test_lva() {
             basic_blocks: vec![
                 BasicBlock {
                     name: Name::Number(2),
-                    insts: vec![
-                        Instruction {
-                            def: Some(Name::Number(3)),
-                            uses: vec![
-                                Operand {
-                                    constant: false,
-                                    name: Some(Name::Number(0)),
-                                    ty: Type {
-                                        id: 13,
-                                        name: "i32".to_string(),
-                                    },
-                                },
-                                Operand {
-                                    constant: true,
-                                    name: None,
-                                    ty: Type {
-                                        id: 13,
-                                        name: "i32".to_string(),
-                                    },
-                                },
-                            ],
-                        },
-                        Instruction {
-                            def: None,
-                            uses: vec![Operand {
+                    insts: vec![Instruction {
+                        def: Some(Name::Number(3)),
+                        uses: vec![
+                            Operand {
                                 constant: false,
-                                name: Some(Name::Number(3)),
+                                name: Some(Name::Number(0)),
                                 ty: Type {
                                     id: 13,
-                                    name: "i1".to_string(),
+                                    name: "i32".to_string(),
                                 },
-                            },],
-                        },
-                    ],
+                            },
+                            Operand {
+                                constant: true,
+                                name: None,
+                                ty: Type {
+                                    id: 13,
+                                    name: "i32".to_string(),
+                                },
+                            },
+                        ],
+                    },],
                     term: Terminator {
                         opcode: 2,
                         def: None,
@@ -311,17 +298,7 @@ fn test_lva() {
                 },
                 BasicBlock {
                     name: Name::Number(4),
-                    insts: vec![Instruction {
-                        def: None,
-                        uses: vec![Operand {
-                            constant: true,
-                            name: None,
-                            ty: Type {
-                                id: 13,
-                                name: "i32".to_string(),
-                            },
-                        }],
-                    }],
+                    insts: vec![],
                     term: Terminator {
                         opcode: 1,
                         def: None,
@@ -429,17 +406,6 @@ fn test_lva() {
                                     },
                                 },
                             ],
-                        },
-                        Instruction {
-                            def: None,
-                            uses: vec![Operand {
-                                constant: false,
-                                name: Some(Name::Number(9)),
-                                ty: Type {
-                                    id: 13,
-                                    name: "i1".to_string(),
-                                },
-                            },],
                         },
                     ],
                     term: Terminator {
