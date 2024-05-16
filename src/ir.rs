@@ -73,6 +73,8 @@ pub struct Operand {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Instruction {
+    #[serde(rename = "Opcode")]
+    pub opcode: usize,
     #[serde(rename = "Dest")]
     pub def: Option<Name>,
     #[serde(rename = "Uses")]
@@ -286,6 +288,7 @@ fn test_lva() {
                 BasicBlock {
                     name: Name::Number(2),
                     insts: vec![Instruction {
+                        opcode: 53,
                         def: Some(Name::Number(3)),
                         uses: vec![
                             Operand {
@@ -357,6 +360,7 @@ fn test_lva() {
                     name: Name::Number(5),
                     insts: vec![
                         Instruction {
+                            opcode: 55,
                             def: Some(Name::Number(6)),
                             uses: vec![
                                 Operand {
@@ -378,6 +382,7 @@ fn test_lva() {
                             ],
                         },
                         Instruction {
+                            opcode: 56,
                             def: Some(Name::Number(7)),
                             uses: vec![
                                 Operand {
@@ -407,6 +412,7 @@ fn test_lva() {
                             ],
                         },
                         Instruction {
+                            opcode: 13,
                             def: Some(Name::Number(8)),
                             uses: vec![
                                 Operand {
@@ -428,6 +434,7 @@ fn test_lva() {
                             ],
                         },
                         Instruction {
+                            opcode: 53,
                             def: Some(Name::Number(9)),
                             uses: vec![
                                 Operand {
