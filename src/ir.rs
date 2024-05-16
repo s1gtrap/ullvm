@@ -99,22 +99,17 @@ pub fn cfg(
     HashMap<&'_ Name, (&'_ BasicBlock, NodeIndex)>,
     DiGraph<&Name, ()>,
 ) {
-    tracing::info!("cfg");
+    tracing::info!("cfg {}", f.name);
+
     let mut g = DiGraph::new();
     let blocks: HashMap<&'_ Name, (&'_ BasicBlock, NodeIndex)> = f
         .basic_blocks
         .iter()
-        .map(|b| {
-            //tracing::info!("adding {:?}", b.name);
-            (&b.name, (b, g.add_node(&b.name)))
-        })
+        .map(|b| (&b.name, (b, g.add_node(&b.name))))
         .collect();
-    //tracing::info!("blocks = {blocks:?}");
     for b in &f.basic_blocks {
-        //tracing::info!("term = {:?}", b.term);
         match (b.term.opcode, &b.term.uses[..]) {
             (2, &[ref l]) => {
-                //tracing::info!("l = {:?}", l.name);
                 g.add_edge(blocks[&b.name].1, blocks[&l.name.as_ref().unwrap()].1, ());
             }
             (2, &[_, ref l, ref r]) => {
@@ -128,8 +123,9 @@ pub fn cfg(
 }
 
 pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
+    tracing::info!("lva {}", f.name);
+
     let (blocks, cfg) = cfg(f);
-    tracing::info!("lva");
     let (_, block_indices, bi): (_, _, HashMap<&Name, _>) = f.basic_blocks.iter().fold(
         (f.params.len(), HashMap::new(), HashMap::new()),
         |(l, mut m, mut n), b| {
@@ -138,29 +134,21 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
             (l + b.insts.len() + 1, m, n)
         },
     );
-    //tracing::info!("{block_indices:#?}");
     let mut lives = vec![
         (HashSet::new(), HashSet::new());
         f.basic_blocks.iter().map(|b| b.insts.len() + 1).sum()
     ];
-    //for bb in &f.basic_blocks {
-    //tracing::info!("{}", bb.insts.len());
-    //}
     for _ in 0..10 {
         for j in (0..lives.len()).rev() {
             let i = j + f.params.len();
-            //tracing::info!("i = {i}");
             let (block_idx, block) = block_indices
                 .iter()
                 .filter(|&(j, _)| *j <= i)
                 .max_by_key(|&(j, _)| *j)
                 .unwrap();
-            //tracing::info!("{block_idx}");
 
             // in[i] = use[i] U (out[i] - def[i])
             if let Some(inst) = &block.insts.get(i - (block_idx)) {
-                //tracing::info!("some {i}");
-                //tracing::info!(" insts[{}] = {:?}", i - block_idx, inst);
                 let def = &block.insts[i - block_idx].def;
                 let def: HashSet<_> = def.iter().collect();
                 let r#use: HashSet<_> = if inst.opcode != 55 {
@@ -178,12 +166,8 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
                 } else {
                     HashSet::new()
                 };
-                //tracing::info!("use[{i}] = {:?}", r#use);
-                //tracing::info!("use[{i}] = {:?}", r#use);
                 lives[j].0 = r#use.union(&(&lives[j].1 - &def)).cloned().collect();
             } else {
-                //tracing::info!("none");
-                //tracing::info!(" term = {:?}", &block.term);
                 let def = &block.term.def;
                 let def: HashSet<_> = def.iter().collect();
                 let r#use: HashSet<_> = block
@@ -198,16 +182,12 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
                         }
                     })
                     .collect();
-                //tracing::info!("use[{i}] = {:?}", r#use);
-                //tracing::info!("use[{i}] = {:?}", r#use);
                 lives[j].0 = r#use.union(&(&lives[j].1 - &def)).cloned().collect();
             }
-            //tracing::info!(" in[{i}] = {:?}", lives[j].0);
         }
 
         for j in (0..lives.len()).rev() {
             let i = j + f.params.len();
-            //tracing::info!("i = {i}");
             let (block_idx, block) = block_indices
                 .iter()
                 .filter(|&(j, _)| *j <= i)
@@ -216,68 +196,39 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
 
             // out[i] = U_s=succ[i] (in[s] U phis[s])
             if let Some(_inst) = &block.insts.get(i - (block_idx)) {
-                //tracing::info!("some {i}");
                 // all insts only have one subsequent successor
-
-                //tracing::info!("   setting out[{:?}] to in[{:?}]", i, i + 1);
                 lives[j].1 = lives[j + 1].0.clone();
             } else {
-                //tracing::info!("none");
                 use petgraph::visit::IntoNodeReferences;
                 // terminators must be looked up in the cfg
-                //tracing::info!("searching for {:?} {:?}", block_idx, block);
-                let (idx, node) = cfg
+                let (idx, _node) = cfg
                     .node_references()
                     .find(|(_, n)| ***n == block.name)
                     .unwrap();
-                //tracing::info!("{:?}", node);
-                let succ: Vec<_> = cfg.neighbors(idx).collect();
                 for succ in cfg.neighbors(idx) {
                     let name = cfg.node_weight(succ).unwrap();
                     let (source, _) = blocks.get(name).unwrap();
-                    tracing::info!("{:?} is a successor of {:?}", source.name, i);
-                    tracing::info!("  copy from in[{}] to out[{}]", bi[&source.name], j);
-                    tracing::info!(
-                        "   {:?} U {:?} = {:?}",
-                        lives[j].0,
-                        lives[bi[&source.name]].1,
-                        j
-                    );
+
+                    // copy in's from each succesor
                     lives[j].1 = lives[j]
                         .1
                         .union(&lives[bi[&source.name]].0)
                         .copied()
                         .collect();
 
-                    // copy in's from each succesor
-                    /*tracing::info!("{} <- {}", i, bi[&source.name]);
-                    lives[j].1 = lives[j]
-                        .1
-                        .union(&lives[bi[&source.name]].0)
-                        .copied()
-                        .collect();*/
-
                     // find phis in each block
-                    //tracing::info!("{:?}", cfg.node_weight(succ).unwrap());
                     for phi in source.insts.iter().take_while(|i| i.opcode == 55 /* phi */) {
-                        //tracing::info!("phi: {:?}", phi);
                         for (source_name, uses) in
                             phi.blocks.as_ref().unwrap().iter().zip(&phi.uses)
                         {
-                            //tracing::info!("source_block: {:?}", source);
-                            //tracing::info!("yses: {:?}", uses);
-                            //tracing::info!("{:?} {:?}", source_name, block.name);
                             if !uses.constant && *source_name == block.name {
-                                //tracing::info!("{:?}", uses.name.as_ref().unwrap());
                                 lives[j].1.insert(uses.name.as_ref().unwrap());
                             }
                         }
                     }
                 }
             }
-            //tracing::info!("out[{i}] = {:?}", lives[j].1);
         }
-        //tracing::info!("lives = {:?}", lives);
     }
     lives
 }
