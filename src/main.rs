@@ -34,7 +34,14 @@ macro_rules! test {
     };
 }
 
-const EXAMPLES: &[(&str, &str)] = &test!["min.ll", "ret.ll", "fib.ll", "brainfuck.ll"];
+const EXAMPLES: &[(&str, &str)] = &test![
+    "min.ll",
+    "ret.ll",
+    "for0.ll",
+    "for1.ll",
+    "fib.ll",
+    "brainfuck.ll",
+];
 
 #[wasm_bindgen]
 extern "C" {
