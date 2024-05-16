@@ -183,6 +183,7 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
             // out[i] = U_s=succ[i] (in[s] U phis[s])
             if let Some(_inst) = &block.insts.get(i - (block_idx) + 1) {
                 // all insts only have one subsequent successor
+                lives[j].1 = lives[j + 1].0.clone();
             } else {
                 // terminators must be looked up in the cfg
             }
