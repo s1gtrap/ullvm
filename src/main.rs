@@ -1,11 +1,14 @@
 #![allow(non_snake_case)]
 
+use std::collections::HashSet;
+
 use dioxus::prelude::*;
 use tracing::Level;
 use wasm_bindgen::prelude::*;
 
 mod code;
 mod ir;
+mod lva;
 mod tabs;
 
 #[wasm_bindgen]
@@ -56,6 +59,16 @@ fn App() -> Element {
     let mut output_debug = use_signal(|| "".to_owned());
     let mut output_abstract = use_signal(|| "".to_owned());
     let mut output_cfg = use_signal(|| vec![(String::new(), String::new(), String::new())]);
+    let mut output_lva = use_signal(|| {
+        vec![(
+            String::new(),
+            vec![(
+                HashSet::<ir::Name>::new(),
+                HashSet::<ir::Name>::new(),
+                String::new(),
+            )],
+        )]
+    });
     rsx! {
         main { class: "w-full bg-slate-100",
             div { class: "flex",
@@ -160,8 +173,27 @@ fn App() -> Element {
                                                 .unwrap();
                                             tracing::info!("{cfg:?}");
                                             let svg = cfg.dyn_ref::<js_sys::JsString>().unwrap().to_string();
-                                            ir::lva(f);
                                             (f.name.clone(), cfg_dot, svg.into())
+                                        })
+                                        .collect();
+                                    *output_lva.write() = m
+                                        .functions
+                                        .iter()
+                                        .map(|f| {
+                                            let insns = ir::lva(f);
+                                            (
+                                                f.name.to_string(),
+                                                insns
+                                                    .iter()
+                                                    .map(|(r#in, out, insn)| {
+                                                        (
+                                                            r#in.into_iter().cloned().cloned().collect(),
+                                                            out.into_iter().cloned().cloned().collect(),
+                                                            format!("{insn}"),
+                                                        )
+                                                    })
+                                                    .collect(),
+                                            )
                                         })
                                         .collect();
                                 },
@@ -197,6 +229,14 @@ fn App() -> Element {
                                     tabs::Tabs { tabs : output_cfg.read().clone().into_iter().map(| s | { (s
                                     .0.clone(), rsx! { div { div { dangerous_inner_html : "{s.2}", }
                                     code::Code { code : "{s.1}" } } }) }).collect::< Vec < _ >> (), }
+                                },
+                            ),
+                            (
+                                "LVA".to_string(),
+                                rsx! {
+                                    tabs::Tabs { tabs : output_lva.read().clone().into_iter().map(| a | { (a
+                                    .0.clone(), rsx! { lva::Lva { lva : a.1 } }) }).collect::< Vec < _ >> (),
+                                    }
                                 },
                             ),
                         ]

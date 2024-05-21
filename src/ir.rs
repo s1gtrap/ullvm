@@ -19,7 +19,7 @@ pub struct Function {
     pub basic_blocks: Vec<BasicBlock>,
 }
 
-#[derive(Eq, Hash, PartialEq, serde::Deserialize)]
+#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Name {
     Name(String),
@@ -81,6 +81,8 @@ pub struct Instruction {
     pub uses: Vec<Operand>,
     #[serde(rename = "Blocks")]
     pub blocks: Option<Vec<Name>>,
+    #[serde(rename = "String")]
+    pub string: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -91,6 +93,8 @@ pub struct Terminator {
     pub def: Option<Name>,
     #[serde(rename = "Uses")]
     pub uses: Vec<Operand>,
+    #[serde(rename = "String")]
+    pub string: String,
 }
 
 pub fn cfg(
@@ -122,7 +126,7 @@ pub fn cfg(
     (blocks, g)
 }
 
-pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
+pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>, &str)> {
     tracing::info!("lva {}", f.name);
 
     let (blocks, cfg) = cfg(f);
@@ -135,7 +139,7 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
         },
     );
     let mut lives = vec![
-        (HashSet::new(), HashSet::new());
+        (HashSet::new(), HashSet::new(), "");
         f.basic_blocks.iter().map(|b| b.insts.len() + 1).sum()
     ];
     for _ in 0..10 {
@@ -167,6 +171,7 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
                     HashSet::new()
                 };
                 lives[j].0 = r#use.union(&(&lives[j].1 - &def)).cloned().collect();
+                lives[j].2 = &block.insts[i - block_idx].string;
             } else {
                 let def = &block.term.def;
                 let def: HashSet<_> = def.iter().collect();
@@ -183,6 +188,7 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>)> {
                     })
                     .collect();
                 lives[j].0 = r#use.union(&(&lives[j].1 - &def)).cloned().collect();
+                lives[j].2 = &block.term.string;
             }
         }
 
@@ -271,12 +277,14 @@ fn test_lva() {
                             name: "i32".to_string(),
                         },
                     }],
+                    string: "  ret void".to_string(),
                 },
             }],
         }),
         vec![(
             HashSet::from([&Name::Name("argc".to_string())]),
             HashSet::new(),
+            "  ret void",
         )],
     );
     // for1.ll
@@ -324,6 +332,7 @@ fn test_lva() {
                             },
                         ],
                         blocks: None,
+                        string: "  %3 = icmp sgt i32 %0, 0".to_string(),
                     },],
                     term: Terminator {
                         opcode: 2,
@@ -354,6 +363,7 @@ fn test_lva() {
                                 },
                             },
                         ],
+                        string: "  br i1 %3, label %5, label %4".to_string(),
                     },
                 },
                 BasicBlock {
@@ -370,6 +380,7 @@ fn test_lva() {
                                 name: "i32".to_string(),
                             },
                         },],
+                        string: "  ret i32 0".to_string(),
                     },
                 },
                 BasicBlock {
@@ -397,6 +408,7 @@ fn test_lva() {
                                 },
                             ],
                             blocks: Some(vec![Name::Number(5), Name::Number(2),],),
+                            string: "  %6 = phi i32 [ %8, %5 ], [ 0, %2 ]".to_string(),
                         },
                         Instruction {
                             opcode: 56,
@@ -428,6 +440,7 @@ fn test_lva() {
                                 },
                             ],
                             blocks: None,
+                            string: "  %7 = tail call i32 (ptr, ...) @printf(ptr noundef nonnull dereferenceable(1) @.str, i32 noundef %6)".to_string(),
                         },
                         Instruction {
                             opcode: 13,
@@ -451,6 +464,7 @@ fn test_lva() {
                                 },
                             ],
                             blocks: None,
+                            string: "  %8 = add nuw nsw i32 %6, 1".to_string(),
                         },
                         Instruction {
                             opcode: 53,
@@ -474,6 +488,7 @@ fn test_lva() {
                                 },
                             ],
                             blocks: None,
+                            string: "  %9 = icmp eq i32 %8, %0".to_string(),
                         },
                     ],
                     term: Terminator {
@@ -505,6 +520,7 @@ fn test_lva() {
                                 },
                             },
                         ],
+                        string: "  br i1 %3, label %5, label %4".to_string(),
                     },
                 },
             ],
@@ -513,31 +529,38 @@ fn test_lva() {
             (
                 HashSet::from([&Name::Number(0)]),
                 HashSet::from([&Name::Number(0), &Name::Number(3)]),
+                "  %3 = icmp sgt i32 %0, 0",
             ),
             (
                 HashSet::from([&Name::Number(0), &Name::Number(3)]),
                 HashSet::from([&Name::Number(0)]),
+                "  br i1 %3, label %5, label %4",
             ),
-            (HashSet::from([]), HashSet::from([])),
+            (HashSet::from([]), HashSet::from([]), "  ret i32 0"),
             (
                 HashSet::from([&Name::Number(0)]),
                 HashSet::from([&Name::Number(0), &Name::Number(6)]),
+                "  %6 = phi i32 [ %8, %5 ], [ 0, %2 ]",
             ),
             (
                 HashSet::from([&Name::Number(0), &Name::Number(6)]),
                 HashSet::from([&Name::Number(0), &Name::Number(6)]),
+                "  %7 = tail call i32 (ptr, ...) @printf(ptr noundef nonnull dereferenceable(1) @.str, i32 noundef %6)",
             ),
             (
                 HashSet::from([&Name::Number(0), &Name::Number(6)]),
                 HashSet::from([&Name::Number(0), &Name::Number(8)]),
+                "  %8 = add nuw nsw i32 %6, 1",
             ),
             (
                 HashSet::from([&Name::Number(0), &Name::Number(8)]),
                 HashSet::from([&Name::Number(0), &Name::Number(8), &Name::Number(9)]),
+                "  %9 = icmp eq i32 %8, %0",
             ),
             (
                 HashSet::from([&Name::Number(0), &Name::Number(8), &Name::Number(9)]),
                 HashSet::from([&Name::Number(0), &Name::Number(8)]),
+                "  br i1 %3, label %5, label %4",
             ),
         ],
     );
