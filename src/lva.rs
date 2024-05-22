@@ -43,12 +43,14 @@ pub fn Lva(lva: Vec<(HashSet<crate::ir::Name>, HashSet<crate::ir::Name>, String)
 
                         if !r#in.contains(&highlight.read().clone().unwrap()) {
 
-                        div { class: "text-red-500", "{s}" }
-        }
-                            else {
+                            div { class: "bg-clip-text text-transparent bg-gradient-to-b from-black to-red-500 via-red-500", "{s}" }
+                        } else if !out.contains(&highlight.read().clone().unwrap()) {
 
-                        div { class: "text-red-500", "{s}" }
-        }
+                            div { class: "bg-clip-text text-transparent bg-gradient-to-b from-red-500 to-black via-red-500", "{s}" }
+                        } else {
+
+                            div { class: "text-red-500", "{s}" }
+                        }
                     } else {
                         div { "{s}" }
                     }
