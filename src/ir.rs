@@ -3434,12 +3434,11 @@ fn test_out_iter() {
             },
         }],
     };
-    let mut lives = init_lives(&f);
     let argc = Name::Name("argc".to_string());
-    lives[0].0 = HashSet::from([&argc]);
+    let mut lives = vec![(HashSet::from([&argc]), HashSet::new(), "  ret void")];
     let len = lives.len();
     let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
-    assert!(iter.nth(0).is_some());
+    assert!(iter.next().is_some());
     assert_eq!(
         lives
             .iter()
@@ -4010,7 +4009,94 @@ fn test_out_iter() {
                 },
             ],
         };
-    let mut lives = init_lives(&f);
+    let mut lives = vec![
+        (HashSet::new(), HashSet::new(), "  %3 = alloca i32, align 4"),
+        (HashSet::new(), HashSet::new(), "  %4 = alloca i32, align 4"),
+        (HashSet::new(), HashSet::new(), "  %5 = alloca ptr, align 8"),
+        (HashSet::new(), HashSet::new(), "  %6 = alloca i32, align 4"),
+        (
+            HashSet::from([&Name::Number(3)]),
+            HashSet::new(),
+            "  store i32 0, ptr %3, align 4",
+        ),
+        (
+            HashSet::from([&Name::Number(0), &Name::Number(4)]),
+            HashSet::new(),
+            "  store i32 %0, ptr %4, align 4",
+        ),
+        (
+            HashSet::from([&Name::Number(1), &Name::Number(5)]),
+            HashSet::new(),
+            "  store ptr %1, ptr %5, align 8",
+        ),
+        (
+            HashSet::from([&Name::Number(6)]),
+            HashSet::new(),
+            "  store i32 0, ptr %6, align 4",
+        ),
+        (HashSet::new(), HashSet::new(), "  br label %7"),
+        (
+            HashSet::from([&Name::Number(6)]),
+            HashSet::new(),
+            "  %8 = load i32, ptr %6, align 4",
+        ),
+        (
+            HashSet::from([&Name::Number(4)]),
+            HashSet::new(),
+            "  %9 = load i32, ptr %4, align 4",
+        ),
+        (
+            HashSet::from([&Name::Number(8), &Name::Number(9)]),
+            HashSet::new(),
+            "  %10 = icmp slt i32 %8, %9",
+        ),
+        (
+            HashSet::from([&Name::Number(10)]),
+            HashSet::new(),
+            "  br i1 %10, label %11, label %17",
+        ),
+        (
+            HashSet::from([&Name::Number(6)]),
+            HashSet::new(),
+            "  %12 = load i32, ptr %6, align 4",
+        ),
+        (
+            HashSet::from([&Name::Number(12)]),
+            HashSet::new(),
+            "  %13 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %12)",
+        ),
+        (HashSet::new(), HashSet::new(), "  br label %14"),
+        (
+            HashSet::from([&Name::Number(6)]),
+            HashSet::new(),
+            "  %15 = load i32, ptr %6, align 4",
+        ),
+        (
+            HashSet::from([&Name::Number(15)]),
+            HashSet::new(),
+            "  %16 = add nsw i32 %15, 1",
+        ),
+        (
+            HashSet::from([&Name::Number(6), &Name::Number(16)]),
+            HashSet::new(),
+            "  store i32 %16, ptr %6, align 4",
+        ),
+        (
+            HashSet::new(),
+            HashSet::new(),
+            "  br label %7, !llvm.loop !5",
+        ),
+        (
+            HashSet::from([&Name::Number(3)]),
+            HashSet::new(),
+            "  %18 = load i32, ptr %3, align 4",
+        ),
+        (
+            HashSet::from([&Name::Number(18)]),
+            HashSet::new(),
+            "  ret i32 %18",
+        ),
+    ];
     let len = lives.len();
     let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(0).is_some());
@@ -4024,23 +4110,35 @@ fn test_out_iter() {
             (HashSet::new(), HashSet::new()),
             (HashSet::new(), HashSet::new()),
             (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
             (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
             (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
             (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
