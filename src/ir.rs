@@ -1759,7 +1759,140 @@ fn test_use() {
     );
 }
 
+struct InIter<'a, 'b, I>(
+    &'b Function,
+    &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)],
+    I,
+)
+where
+    I: Iterator<Item = usize>;
+
+impl<'a, 'b, I> Iterator for InIter<'a, 'b, I>
+where
+    I: Iterator<Item = usize>,
+{
+    type Item = ();
+    fn next(&mut self) -> Option<Self::Item> {
+        let (blocks, cfg) = cfg(self.0);
+        let (_, block_indices, bi): (_, _, HashMap<&Name, _>) = self.0.basic_blocks.iter().fold(
+            (self.0.params.len(), HashMap::new(), HashMap::new()),
+            |(l, mut m, mut n), b| {
+                m.insert(l, b);
+                n.insert(&b.name, l - self.0.params.len());
+                (l + b.insts.len() + 1, m, n)
+            },
+        );
+
+        self.2.next().map(|j| {
+            let i = j + self.0.params.len();
+            let (block_idx, block) = block_indices
+                .iter()
+                .filter(|&(j, _)| *j <= i)
+                .max_by_key(|&(j, _)| *j)
+                .unwrap();
+
+            // in[i] = use[i] U (out[i] - def[i])
+            if let Some(inst) = &block.insts.get(i - (block_idx)) {
+                let def = &block.insts[i - block_idx].def;
+                let def: HashSet<_> = def.iter().collect();
+                let r#use: HashSet<_> = if inst.opcode != 55 {
+                    block.insts[i - block_idx]
+                        .uses
+                        .iter()
+                        .filter_map(|o| {
+                            if !o.constant && o.ty.id != 8 {
+                                Some(o.name.as_ref().unwrap())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                } else {
+                    HashSet::new()
+                };
+                self.1[j].0 = r#use.union(&(&self.1[j].1 - &def)).cloned().collect();
+            } else {
+                let def = &block.term.def;
+                let def: HashSet<_> = def.iter().collect();
+                let r#use: HashSet<_> = block
+                    .term
+                    .uses
+                    .iter()
+                    .filter_map(|o| {
+                        if !o.constant && o.ty.id != 8 {
+                            Some(o.name.as_ref().unwrap())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                self.1[j].0 = r#use.union(&(&self.1[j].1 - &def)).cloned().collect();
+            }
+        })
+    }
+}
+
+fn in_step<'a, 'b>(i: usize, lives: &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)]) {}
+
+#[test]
 fn test_in_iter() {
+    let f = Function {
+        name: "main".to_string(),
+        params: vec![
+            Param {
+                name: Name::Name("argc".to_string()),
+                ty: Type {
+                    id: 13,
+                    name: "i32".to_string(),
+                },
+            },
+            Param {
+                name: Name::Name("argv".to_string()),
+                ty: Type {
+                    id: 15,
+                    name: "ptr".to_string(),
+                },
+            },
+        ],
+        basic_blocks: vec![BasicBlock {
+            name: Name::Number(0),
+            insts: vec![],
+            term: Terminator {
+                opcode: 1,
+                def: None,
+                uses: vec![Operand {
+                    constant: false,
+                    name: Some(Name::Name("argc".to_string())),
+                    ty: Type {
+                        id: 13,
+                        name: "i32".to_string(),
+                    },
+                }],
+                string: "  ret void".to_string(),
+            },
+        }],
+    };
+    let mut lives = init_lives(&f);
+    let len = lives.len();
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                HashSet::from([&Name::Name("argc".to_string())]),
+                HashSet::new()
+            );
+            len
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(1).next().is_none());
+
+    // for0.ll
     let f = Function {
             name: "main".to_string(),
             params: vec![
@@ -2313,7 +2446,888 @@ fn test_in_iter() {
                 },
             ],
         };
-    //let mut lives =
+    let mut lives = init_lives(&f);
+    let len = lives.len();
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(1).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(2).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(3).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(4).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(5).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(6).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(7).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(8).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(9).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(10).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(11).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(12).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(13).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(14).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(15).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(16).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(17).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(18).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(19).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(20).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(21).next().is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.skip(22).next().is_none());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
 }
 
 #[test]
