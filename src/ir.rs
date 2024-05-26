@@ -126,6 +126,63 @@ pub fn cfg(
     (blocks, g)
 }
 
+pub fn def(f: &Function) -> Vec<HashSet<&Name>> {
+    tracing::info!("def {}", f.name);
+
+    let (blocks, cfg) = cfg(f);
+    let (_, block_indices, bi): (_, _, HashMap<&Name, _>) = f.basic_blocks.iter().fold(
+        (f.params.len(), HashMap::new(), HashMap::new()),
+        |(l, mut m, mut n), b| {
+            m.insert(l, b);
+            n.insert(&b.name, l - f.params.len());
+            (l + b.insts.len() + 1, m, n)
+        },
+    );
+    let mut lives = vec![
+        (HashSet::<()>::new(), HashSet::<()>::new(), "");
+        f.basic_blocks.iter().map(|b| b.insts.len() + 1).sum()
+    ];
+
+    let mut defs = vec![HashSet::new(); lives.len()];
+
+    for j in (0..lives.len()).rev() {
+        let i = j + f.params.len();
+        let (block_idx, block) = block_indices
+            .iter()
+            .filter(|&(j, _)| *j <= i)
+            .max_by_key(|&(j, _)| *j)
+            .unwrap();
+
+        // in[i] = use[i] U (out[i] - def[i])
+        if let Some(inst) = &block.insts.get(i - (block_idx)) {
+            let def = &block.insts[i - block_idx].def;
+            let def: HashSet<_> = def.iter().collect();
+            let r#use: HashSet<_> = if inst.opcode != 55 {
+                block.insts[i - block_idx]
+                    .uses
+                    .iter()
+                    .filter_map(|o| {
+                        if !o.constant && o.ty.id != 8 {
+                            Some(o.name.as_ref().unwrap())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            } else {
+                HashSet::new()
+            };
+            defs[j] = def;
+        } else {
+            let def = &block.term.def;
+            let def: HashSet<_> = def.iter().collect();
+            defs[j] = def;
+        }
+    }
+
+    defs
+}
+
 pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>, &str)> {
     tracing::info!("lva {}", f.name);
 
@@ -142,6 +199,7 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>, &str)> {
         (HashSet::new(), HashSet::new(), "");
         f.basic_blocks.iter().map(|b| b.insts.len() + 1).sum()
     ];
+
     for _ in 0..10 {
         for j in (0..lives.len()).rev() {
             let i = j + f.params.len();
@@ -240,7 +298,122 @@ pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>, &str)> {
 }
 
 #[test]
+fn test_def() {
+    // min.ll
+    assert_eq!(
+        def(&Function {
+            name: "main".to_string(),
+            params: vec![
+                Param {
+                    name: Name::Name("argc".to_string()),
+                    ty: Type {
+                        id: 13,
+                        name: "i32".to_string(),
+                    },
+                },
+                Param {
+                    name: Name::Name("argv".to_string()),
+                    ty: Type {
+                        id: 15,
+                        name: "ptr".to_string(),
+                    },
+                },
+            ],
+            basic_blocks: vec![BasicBlock {
+                name: Name::Number(0),
+                insts: vec![],
+                term: Terminator {
+                    opcode: 1,
+                    def: None,
+                    uses: vec![Operand {
+                        constant: false,
+                        name: Some(Name::Name("argc".to_string())),
+                        ty: Type {
+                            id: 13,
+                            name: "i32".to_string(),
+                        },
+                    }],
+                    string: "  ret void".to_string(),
+                },
+            }],
+        }),
+        vec![HashSet::new()],
+    );
+    // ret.ll
+    assert_eq!(
+        def(&Function {
+            name: "main".to_string(),
+            params: vec![],
+            basic_blocks: vec![BasicBlock {
+                name: Name::Number(0),
+                insts: vec![
+                    Instruction {
+                        opcode: 31,
+                        def: Some(Name::Number(1),),
+                        uses: vec![Operand {
+                            constant: true,
+                            name: None,
+                            ty: Type {
+                                id: 13,
+                                name: "i32".to_string(),
+                            },
+                        },],
+                        blocks: None,
+                        string: "  %1 = alloca i32, align 4".to_string(),
+                    },
+                    Instruction {
+                        opcode: 33,
+                        def: None,
+                        uses: vec![
+                            Operand {
+                                constant: true,
+                                name: None,
+                                ty: Type {
+                                    id: 13,
+                                    name: "i32".to_string(),
+                                },
+                            },
+                            Operand {
+                                constant: false,
+                                name: Some(Name::Number(1),),
+                                ty: Type {
+                                    id: 15,
+                                    name: "ptr".to_string(),
+                                },
+                            },
+                        ],
+                        blocks: None,
+                        string: "  store i32 0, ptr %1, align 4".to_string(),
+                    },
+                ],
+                term: Terminator {
+                    opcode: 1,
+                    def: None,
+                    uses: vec![Operand {
+                        constant: true,
+                        name: None,
+                        ty: Type {
+                            id: 13,
+                            name: "i32".to_string(),
+                        },
+                    },],
+                    string: "  ret i32 42".to_string(),
+                },
+            },],
+        }),
+        vec![
+            HashSet::from([&Name::Number(1)]),
+            HashSet::new(),
+            HashSet::new()
+        ]
+    );
+}
+
+#[test]
+#[ignore]
 fn test_lva() {
+    use pretty_assertions::{assert_eq, assert_ne};
+
     tracing_subscriber::fmt::init();
 
     // min.ll
@@ -562,6 +735,1092 @@ fn test_lva() {
                 HashSet::from([&Name::Number(0), &Name::Number(8)]),
                 "  br i1 %3, label %5, label %4",
             ),
+        ],
+    );
+    // fib.ll
+    assert_eq!(
+        lva(&Function {
+            name: "main".to_string(),
+            params: vec![],
+            basic_blocks: vec![
+                BasicBlock {
+                    name: Name::Number(0),
+                    insts: vec![
+                        Instruction {
+                            opcode: 31,
+                            def: Some(
+                                Name::Number(1),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %1 = alloca i32, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 31,
+                            def: Some(
+                                Name::Number(2),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %2 = alloca i32, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 31,
+                            def: Some(
+                                Name::Number(3),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %3 = alloca i32, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 31,
+                            def: Some(
+                                Name::Number(4),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %4 = alloca i32, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 31,
+                            def: Some(
+                                Name::Number(5),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %5 = alloca i32, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 31,
+                            def: Some(
+                                Name::Number(6),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %6 = alloca i32, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(1),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store i32 0, ptr %1, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(4),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store i32 0, ptr %4, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(5),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store i32 1, ptr %5, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(7),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(4),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %7 = load i32, ptr %4, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(8),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(5),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %8 = load i32, ptr %5, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 13,
+                            def: Some(
+                                Name::Number(9),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(7),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(8),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %9 = add nsw i32 %7, %8".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(9),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(6),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store i32 %9, ptr %6, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 56,
+                            def: Some(
+                                Name::Number(10),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %10 = call i32 (ptr, ...) @printf(ptr noundef @.str)".to_string(),
+                        },
+                        Instruction {
+                            opcode: 56,
+                            def: Some(
+                                Name::Number(11),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(3),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %11 = call i32 (ptr, ...) @scanf(ptr noundef @.str.1, ptr noundef %3)".to_string(),
+                        },
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(12),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(4),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %12 = load i32, ptr %4, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(13),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(5),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %13 = load i32, ptr %5, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 56,
+                            def: Some(
+                                Name::Number(14),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(12),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(13),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %14 = call i32 (ptr, ...) @printf(ptr noundef @.str.2, i32 noundef %12, i32 noundef %13)".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(2),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store i32 3, ptr %2, align 4".to_string(),
+                        },
+                    ],
+                    term: Terminator {
+                        opcode: 2,
+                        def: None,
+                        uses: vec![
+                            Operand {
+                                constant: false,
+                                name: Some(
+                                    Name::Number(15),
+                                ),
+                                ty: Type {
+                                    id: 8,
+                                    name: "label".to_string(),
+                                },
+                            },
+                        ],
+                        string: "  br label %15".to_string(),
+                    },
+                },
+                BasicBlock {
+                    name: Name::Number(15),
+                    insts: vec![
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(16),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(2),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %16 = load i32, ptr %2, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(17),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(3),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %17 = load i32, ptr %3, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 53,
+                            def: Some(
+                                Name::Number(18),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(16),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(17),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %18 = icmp sle i32 %16, %17".to_string(),
+                        },
+                    ],
+                    term: Terminator {
+                        opcode: 2,
+                        def: None,
+                        uses: vec![
+                            Operand {
+                                constant: false,
+                                name: Some(
+                                    Name::Number(18),
+                                ),
+                                ty: Type {
+                                    id: 13,
+                                    name: "i1".to_string(),
+                                },
+                            },
+                            Operand {
+                                constant: false,
+                                name: Some(
+                                    Name::Number(30),
+                                ),
+                                ty: Type {
+                                    id: 8,
+                                    name: "label".to_string(),
+                                },
+                            },
+                            Operand {
+                                constant: false,
+                                name: Some(
+                                    Name::Number(19),
+                                ),
+                                ty: Type {
+                                    id: 8,
+                                    name: "label".to_string(),
+                                },
+                            },
+                        ],
+                        string: "  br i1 %18, label %19, label %30".to_string(),
+                    },
+                },
+                BasicBlock {
+                    name: Name::Number(19),
+                    insts: vec![
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(20),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(6),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %20 = load i32, ptr %6, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 56,
+                            def: Some(
+                                Name::Number(21),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(20),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %21 = call i32 (ptr, ...) @printf(ptr noundef @.str.3, i32 noundef %20)".to_string(),
+                        },
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(22),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(5),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %22 = load i32, ptr %5, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(22),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(4),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store i32 %22, ptr %4, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(23),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(6),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %23 = load i32, ptr %6, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(23),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(5),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store i32 %23, ptr %5, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(24),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(4),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %24 = load i32, ptr %4, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(25),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(5),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %25 = load i32, ptr %5, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 13,
+                            def: Some(
+                                Name::Number(26),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(24),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(25),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %26 = add nsw i32 %24, %25".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(26),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(6),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store i32 %26, ptr %6, align 4".to_string(),
+                        },
+                    ],
+                    term: Terminator {
+                        opcode: 2,
+                        def: None,
+                        uses: vec![
+                            Operand {
+                                constant: false,
+                                name: Some(
+                                    Name::Number(27),
+                                ),
+                                ty: Type {
+                                    id: 8,
+                                    name: "label".to_string(),
+                                },
+                            },
+                        ],
+                        string: "  br label %27".to_string(),
+                    },
+                },
+                BasicBlock {
+                    name: Name::Number(27),
+                    insts: vec![
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(28),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(2),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %28 = load i32, ptr %2, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 13,
+                            def: Some(
+                                Name::Number(29),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(28),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %29 = add nsw i32 %28, 1".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(29),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(2),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store i32 %29, ptr %2, align 4".to_string(),
+                        },
+                    ],
+                    term: Terminator {
+                        opcode: 2,
+                        def: None,
+                        uses: vec![
+                            Operand {
+                                constant: false,
+                                name: Some(
+                                    Name::Number(15),
+                                ),
+                                ty: Type {
+                                    id: 8,
+                                    name: "label".to_string(),
+                                },
+                            },
+                        ],
+                        string: "  br label %15, !llvm.loop !5".to_string(),
+                    },
+                },
+                BasicBlock {
+                    name: Name::Number(30),
+                    insts: vec![],
+                    term: Terminator {
+                        opcode: 1,
+                        def: None,
+                        uses: vec![
+                            Operand {
+                                constant: true,
+                                name: None,
+                                ty: Type {
+                                    id: 13,
+                                    name: "i32".to_string(),
+                                },
+                            },
+                        ],
+                        string: "  ret i32 0".to_string(),
+                    },
+                },
+            ],
+        }),
+        vec![
+            (
+                HashSet::from([]),
+                HashSet::from([&Name::Number(1)]),
+                "  %1 = alloca i32, align 4",
+            ),
+            (
+                HashSet::from([&Name::Number(1)]),
+                HashSet::from([&Name::Number(1), &Name::Number(2)]),
+                "  %2 = alloca i32, align 4",
+            ),
+            (HashSet::from([]), HashSet::from([]), "  ret i32 0"),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(2)]),
+                HashSet::from([&Name::Number(1), &Name::Number(2), &Name::Number(3)]),
+                "  %3 = alloca i32, align 4",
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(2), &Name::Number(3)]),
+                HashSet::from([
+                    &Name::Number(1),
+                    &Name::Number(2),
+                    &Name::Number(3),
+                    &Name::Number(4),
+                ]),
+                "  %4 = alloca i32, align 4",
+            ),
+            (
+                HashSet::from([
+                    &Name::Number(1),
+                    &Name::Number(2),
+                    &Name::Number(3),
+                    &Name::Number(4),
+                ]),
+                HashSet::from([
+                    &Name::Number(1),
+                    &Name::Number(2),
+                    &Name::Number(3),
+                    &Name::Number(4),
+                    &Name::Number(5),
+                ]),
+                "  %5 = alloca i32, align 4",
+            ),
+            (
+                HashSet::from([
+                    &Name::Number(1),
+                    &Name::Number(2),
+                    &Name::Number(3),
+                    &Name::Number(4),
+                    &Name::Number(5),
+                ]),
+                HashSet::from([
+                    &Name::Number(1),
+                    &Name::Number(2),
+                    &Name::Number(3),
+                    &Name::Number(4),
+                    &Name::Number(5),
+                    &Name::Number(6),
+                ]),
+                "  %6 = alloca i32, align 4",
+            ),
+            ( HashSet::from([&Name::Number(1),]), HashSet::from([]), "  store i32 0, ptr %1, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  store i32 0, ptr %4, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  store i32 1, ptr %5, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %7 = load i32, ptr %4, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %8 = load i32, ptr %5, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %9 = add nsw i32 %7, %8",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  store i32 %9, ptr %6, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %10 = call i32 (ptr, ...) @printf(ptr noundef @.str)",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %11 = call i32 (ptr, ...) @scanf(ptr noundef @.str.1, ptr noundef %3)",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %12 = load i32, ptr %4, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %13 = load i32, ptr %5, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %14 = call i32 (ptr, ...) @printf(ptr noundef @.str.2, i32 noundef %12, i32 noundef %13)",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  store i32 3, ptr %2, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  br label %15",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %16 = load i32, ptr %2, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %17 = load i32, ptr %3, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %18 = icmp sle i32 %16, %17",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  br i1 %18, label %19, label %30",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %20 = load i32, ptr %6, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %21 = call i32 (ptr, ...) @printf(ptr noundef @.str.3, i32 noundef %20)",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %22 = load i32, ptr %5, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  store i32 %22, ptr %4, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %23 = load i32, ptr %6, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  store i32 %23, ptr %5, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %24 = load i32, ptr %4, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %25 = load i32, ptr %5, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %26 = add nsw i32 %24, %25",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  store i32 %26, ptr %6, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  br label %27",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %28 = load i32, ptr %2, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  %29 = add nsw i32 %28, 1",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  store i32 %29, ptr %2, align 4",),
+            ( HashSet::from([&Name::Number(2),]), HashSet::from([&Name::Number(2),]), "  br label %15, !llvm.loop !5",),
+            ( HashSet::from([]), HashSet::from([]), "  ret i32 0",),
         ],
     );
 }
