@@ -1740,13 +1740,27 @@ fn test_use() {
     );
 }
 
-pub struct InIter<'a, 'b, I>(
-    &'b Function,
-    &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)],
-    I,
-)
+pub struct InIter<'a, 'b, I>
 where
-    I: Iterator<Item = usize>;
+    I: Iterator<Item = usize>,
+{
+    f: &'b Function,
+    lives: &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)],
+    iter: I,
+}
+
+impl<'a, 'b, I> InIter<'a, 'b, I>
+where
+    I: Iterator<Item = usize>,
+{
+    fn new(
+        f: &'b Function,
+        lives: &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)],
+        iter: I,
+    ) -> Self {
+        InIter { f, lives, iter }
+    }
+}
 
 impl<'a, 'b, I> Iterator for InIter<'a, 'b, I>
 where
@@ -1754,18 +1768,18 @@ where
 {
     type Item = ();
     fn next(&mut self) -> Option<Self::Item> {
-        let (_blocks, _cfg) = cfg(self.0);
-        let (_, block_indices, _bi): (_, _, HashMap<&Name, _>) = self.0.basic_blocks.iter().fold(
-            (self.0.params.len(), HashMap::new(), HashMap::new()),
+        let (_blocks, _cfg) = cfg(self.f);
+        let (_, block_indices, _bi): (_, _, HashMap<&Name, _>) = self.f.basic_blocks.iter().fold(
+            (self.f.params.len(), HashMap::new(), HashMap::new()),
             |(l, mut m, mut n), b| {
                 m.insert(l, b);
-                n.insert(&b.name, l - self.0.params.len());
+                n.insert(&b.name, l - self.f.params.len());
                 (l + b.insts.len() + 1, m, n)
             },
         );
 
-        self.2.next().map(|j| {
-            let i = j + self.0.params.len();
+        self.iter.next().map(|j| {
+            let i = j + self.f.params.len();
             let (block_idx, block) = block_indices
                 .iter()
                 .filter(|&(j, _)| *j <= i)
@@ -1791,7 +1805,7 @@ where
                 } else {
                     HashSet::new()
                 };
-                self.1[j].0 = r#use.union(&(&self.1[j].1 - &def)).cloned().collect();
+                self.lives[j].0 = r#use.union(&(&self.lives[j].1 - &def)).cloned().collect();
             } else {
                 let def = &block.term.def;
                 let def: HashSet<_> = def.iter().collect();
@@ -1807,7 +1821,7 @@ where
                         }
                     })
                     .collect();
-                self.1[j].0 = r#use.union(&(&self.1[j].1 - &def)).cloned().collect();
+                self.lives[j].0 = r#use.union(&(&self.lives[j].1 - &def)).cloned().collect();
             }
         })
     }
@@ -1853,7 +1867,7 @@ fn test_in_iter() {
     };
     let mut lives = init_lives(&f);
     let len = lives.len();
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(0).is_some());
     assert_eq!(
         lives
@@ -1868,7 +1882,7 @@ fn test_in_iter() {
             len
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(1).is_none());
 
     // for0.ll
@@ -2427,7 +2441,7 @@ fn test_in_iter() {
         };
     let mut lives = init_lives(&f);
     let len = lives.len();
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(0).is_some());
     assert_eq!(
         lives
@@ -2459,7 +2473,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(1).is_some());
     assert_eq!(
         lives
@@ -2491,7 +2505,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(2).is_some());
     assert_eq!(
         lives
@@ -2523,7 +2537,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(3).is_some());
     assert_eq!(
         lives
@@ -2558,7 +2572,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(4).is_some());
     assert_eq!(
         lives
@@ -2593,7 +2607,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(5).is_some());
     assert_eq!(
         lives
@@ -2628,7 +2642,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(6).is_some());
     assert_eq!(
         lives
@@ -2663,7 +2677,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(7).is_some());
     assert_eq!(
         lives
@@ -2698,7 +2712,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(8).is_some());
     assert_eq!(
         lives
@@ -2733,7 +2747,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(9).is_some());
     assert_eq!(
         lives
@@ -2768,7 +2782,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(10).is_some());
     assert_eq!(
         lives
@@ -2806,7 +2820,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(11).is_some());
     assert_eq!(
         lives
@@ -2844,7 +2858,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(12).is_some());
     assert_eq!(
         lives
@@ -2882,7 +2896,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(13).is_some());
     assert_eq!(
         lives
@@ -2920,7 +2934,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(14).is_some());
     assert_eq!(
         lives
@@ -2958,7 +2972,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(15).is_some());
     assert_eq!(
         lives
@@ -2999,7 +3013,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(16).is_some());
     assert_eq!(
         lives
@@ -3043,7 +3057,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(17).is_some());
     assert_eq!(
         lives
@@ -3087,7 +3101,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(18).is_some());
     assert_eq!(
         lives
@@ -3131,7 +3145,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(19).is_some());
     assert_eq!(
         lives
@@ -3175,7 +3189,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(20).is_some());
     assert_eq!(
         lives
@@ -3219,7 +3233,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(21).is_some());
     assert_eq!(
         lives
@@ -3263,7 +3277,7 @@ fn test_in_iter() {
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(22).is_none());
     assert_eq!(
         lives
