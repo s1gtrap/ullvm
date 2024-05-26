@@ -1747,6 +1747,8 @@ where
     f: &'b Function,
     lives: &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)],
     block_indices: HashMap<usize, &'b BasicBlock>,
+    r#use: Vec<HashSet<&'b Name>>,
+    def: Vec<HashSet<&'b Name>>,
     iter: I,
 }
 
@@ -1767,10 +1769,14 @@ where
                 (l + b.insts.len() + 1, m, n)
             },
         );
+        let r#use = r#use(&f);
+        let def = def(&f);
         InIter {
             f,
             lives,
             block_indices,
+            r#use,
+            def,
             iter,
         }
     }
@@ -1783,51 +1789,10 @@ where
     type Item = ();
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next().map(|j| {
-            let i = j + self.f.params.len();
-            let (block_idx, block) = self
-                .block_indices
-                .iter()
-                .filter(|&(j, _)| *j <= i)
-                .max_by_key(|&(j, _)| *j)
-                .unwrap();
-
             // in[i] = use[i] U (out[i] - def[i])
-            if let Some(inst) = &block.insts.get(i - (block_idx)) {
-                let def = &block.insts[i - block_idx].def;
-                let def: HashSet<_> = def.iter().collect();
-                let r#use: HashSet<_> = if inst.opcode != 55 {
-                    block.insts[i - block_idx]
-                        .uses
-                        .iter()
-                        .filter_map(|o| {
-                            if !o.constant && o.ty.id != 8 {
-                                Some(o.name.as_ref().unwrap())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect()
-                } else {
-                    HashSet::new()
-                };
-                self.lives[j].0 = r#use.union(&(&self.lives[j].1 - &def)).cloned().collect();
-            } else {
-                let def = &block.term.def;
-                let def: HashSet<_> = def.iter().collect();
-                let r#use: HashSet<_> = block
-                    .term
-                    .uses
-                    .iter()
-                    .filter_map(|o| {
-                        if !o.constant && o.ty.id != 8 {
-                            Some(o.name.as_ref().unwrap())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                self.lives[j].0 = r#use.union(&(&self.lives[j].1 - &def)).cloned().collect();
-            }
+            let def = &self.def[j];
+            let r#use = &self.r#use[j];
+            self.lives[j].0 = r#use.union(&(&self.lives[j].1 - def)).cloned().collect();
         })
     }
 }
@@ -3283,6 +3248,1607 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(22).is_none());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+}
+
+pub struct OutIter<'a, 'b, I>
+where
+    I: Iterator<Item = usize>,
+{
+    f: &'b Function,
+    blocks: HashMap<&'b Name, (&'b BasicBlock, NodeIndex)>,
+    cfg: DiGraph<&'b Name, ()>,
+    lives: &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)],
+    block_indices: HashMap<usize, &'b BasicBlock>,
+    bi: HashMap<&'b Name, usize>,
+    r#use: Vec<HashSet<&'b Name>>,
+    def: Vec<HashSet<&'b Name>>,
+    iter: I,
+}
+
+impl<'a, 'b, I> OutIter<'a, 'b, I>
+where
+    I: Iterator<Item = usize>,
+{
+    pub(crate) fn new(
+        f: &'b Function,
+        lives: &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)],
+        iter: I,
+    ) -> Self {
+        let (blocks, cfg) = cfg(f);
+        let (_, block_indices, bi): (_, _, HashMap<&Name, _>) = f.basic_blocks.iter().fold(
+            (f.params.len(), HashMap::new(), HashMap::new()),
+            |(l, mut m, mut n), b| {
+                m.insert(l, b);
+                n.insert(&b.name, l - f.params.len());
+                (l + b.insts.len() + 1, m, n)
+            },
+        );
+        let r#use = r#use(&f);
+        let def = def(&f);
+        OutIter {
+            f,
+            blocks,
+            cfg,
+            lives,
+            block_indices,
+            bi,
+            r#use,
+            def,
+            iter,
+        }
+    }
+}
+
+impl<'a, 'b, I> Iterator for OutIter<'a, 'b, I>
+where
+    I: Iterator<Item = usize>,
+{
+    type Item = ();
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|j| {
+            let i = j + self.f.params.len();
+            let (block_idx, block) = self
+                .block_indices
+                .iter()
+                .filter(|&(j, _)| *j <= i)
+                .max_by_key(|&(j, _)| *j)
+                .unwrap();
+
+            // out[i] = U_s=succ[i] (in[s] U phis[s])
+            if let Some(_inst) = &block.insts.get(i - (block_idx)) {
+                // all insts only have one subsequent successor
+                self.lives[j].1 = self.lives[j + 1].0.clone();
+            } else {
+                use petgraph::visit::IntoNodeReferences;
+                // terminators must be looked up in the cfg
+                let (idx, _node) = self
+                    .cfg
+                    .node_references()
+                    .find(|(_, n)| ***n == block.name)
+                    .unwrap();
+                for succ in self.cfg.neighbors(idx) {
+                    let name = self.cfg.node_weight(succ).unwrap();
+                    let (source, _) = self.blocks.get(name).unwrap();
+
+                    // copy in's from each succesor
+                    self.lives[j].1 = self.lives[j]
+                        .1
+                        .union(&self.lives[self.bi[&source.name]].0)
+                        .copied()
+                        .collect();
+
+                    // find phis in each block
+                    for phi in source.insts.iter().take_while(|i| i.opcode == 55 /* phi */) {
+                        for (source_name, uses) in
+                            phi.blocks.as_ref().unwrap().iter().zip(&phi.uses)
+                        {
+                            if !uses.constant && *source_name == block.name {
+                                self.lives[j].1.insert(uses.name.as_ref().unwrap());
+                            }
+                        }
+                    }
+                }
+            }
+        })
+    }
+}
+
+#[test]
+fn test_out_iter() {
+    let f = Function {
+        name: "main".to_string(),
+        params: vec![
+            Param {
+                name: Name::Name("argc".to_string()),
+                ty: Type {
+                    id: 13,
+                    name: "i32".to_string(),
+                },
+            },
+            Param {
+                name: Name::Name("argv".to_string()),
+                ty: Type {
+                    id: 15,
+                    name: "ptr".to_string(),
+                },
+            },
+        ],
+        basic_blocks: vec![BasicBlock {
+            name: Name::Number(0),
+            insts: vec![],
+            term: Terminator {
+                opcode: 1,
+                def: None,
+                uses: vec![Operand {
+                    constant: false,
+                    name: Some(Name::Name("argc".to_string())),
+                    ty: Type {
+                        id: 13,
+                        name: "i32".to_string(),
+                    },
+                }],
+                string: "  ret void".to_string(),
+            },
+        }],
+    };
+    let mut lives = init_lives(&f);
+    let argc = Name::Name("argc".to_string());
+    lives[0].0 = HashSet::from([&argc]);
+    let len = lives.len();
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(0).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                HashSet::from([&Name::Name("argc".to_string())]),
+                HashSet::new()
+            );
+            len
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(1).is_none());
+
+    // for0.ll
+    let f = Function {
+            name: "main".to_string(),
+            params: vec![
+                Param {
+                    name: Name::Number(0),
+                    ty: Type {
+                        id: 13,
+                        name: "i32".to_string(),
+                    },
+                },
+                Param {
+                    name: Name::Number(1),
+                    ty: Type {
+                        id: 15,
+                        name: "ptr".to_string(),
+                    },
+                },
+            ],
+            basic_blocks: vec![
+                BasicBlock {
+                    name: Name::Number(2),
+                    insts: vec![
+                        Instruction {
+                            opcode: 31,
+                            def: Some(
+                                Name::Number(3),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %3 = alloca i32, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 31,
+                            def: Some(
+                                Name::Number(4),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %4 = alloca i32, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 31,
+                            def: Some(
+                                Name::Number(5),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %5 = alloca ptr, align 8".to_string(),
+                        },
+                        Instruction {
+                            opcode: 31,
+                            def: Some(
+                                Name::Number(6),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %6 = alloca i32, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(3),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store i32 0, ptr %3, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(0),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(4),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store i32 %0, ptr %4, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(1),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(5),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store ptr %1, ptr %5, align 8".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(6),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store i32 0, ptr %6, align 4".to_string(),
+                        },
+                    ],
+                    term: Terminator {
+                        opcode: 2,
+                        def: None,
+                        uses: vec![
+                            Operand {
+                                constant: false,
+                                name: Some(
+                                    Name::Number(7),
+                                ),
+                                ty: Type {
+                                    id: 8,
+                                    name: "label".to_string(),
+                                },
+                            },
+                        ],
+                        string: "  br label %7".to_string(),
+                    },
+                },
+                BasicBlock {
+                    name: Name::Number(7),
+                    insts: vec![
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(8),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(6),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %8 = load i32, ptr %6, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(9),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(4),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %9 = load i32, ptr %4, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 53,
+                            def: Some(
+                                Name::Number(10),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(8),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(9),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %10 = icmp slt i32 %8, %9".to_string(),
+                        },
+                    ],
+                    term: Terminator {
+                        opcode: 2,
+                        def: None,
+                        uses: vec![
+                            Operand {
+                                constant: false,
+                                name: Some(
+                                    Name::Number(10),
+                                ),
+                                ty: Type {
+                                    id: 13,
+                                    name: "i1".to_string(),
+                                },
+                            },
+                            Operand {
+                                constant: false,
+                                name: Some(
+                                    Name::Number(17),
+                                ),
+                                ty: Type {
+                                    id: 8,
+                                    name: "label".to_string(),
+                                },
+                            },
+                            Operand {
+                                constant: false,
+                                name: Some(
+                                    Name::Number(11),
+                                ),
+                                ty: Type {
+                                    id: 8,
+                                    name: "label".to_string(),
+                                },
+                            },
+                        ],
+                        string: "  br i1 %10, label %11, label %17".to_string(),
+                    },
+                },
+                BasicBlock {
+                    name: Name::Number(11),
+                    insts: vec![
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(12),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(6),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %12 = load i32, ptr %6, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 56,
+                            def: Some(
+                                Name::Number(13),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(12),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %13 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %12)".to_string(),
+                        },
+                    ],
+                    term: Terminator {
+                        opcode: 2,
+                        def: None,
+                        uses: vec![
+                            Operand {
+                                constant: false,
+                                name: Some(
+                                    Name::Number(14),
+                                ),
+                                ty: Type {
+                                    id: 8,
+                                    name: "label".to_string(),
+                                },
+                            },
+                        ],
+                        string: "  br label %14".to_string(),
+                    },
+                },
+                BasicBlock {
+                    name: Name::Number(14),
+                    insts: vec![
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(15),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(6),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %15 = load i32, ptr %6, align 4".to_string(),
+                        },
+                        Instruction {
+                            opcode: 13,
+                            def: Some(
+                                Name::Number(16),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(15),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: true,
+                                    name: None,
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %16 = add nsw i32 %15, 1".to_string(),
+                        },
+                        Instruction {
+                            opcode: 33,
+                            def: None,
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(16),
+                                    ),
+                                    ty: Type {
+                                        id: 13,
+                                        name: "i32".to_string(),
+                                    },
+                                },
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(6),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  store i32 %16, ptr %6, align 4".to_string(),
+                        },
+                    ],
+                    term: Terminator {
+                        opcode: 2,
+                        def: None,
+                        uses: vec![
+                            Operand {
+                                constant: false,
+                                name: Some(
+                                    Name::Number(7),
+                                ),
+                                ty: Type {
+                                    id: 8,
+                                    name: "label".to_string(),
+                                },
+                            },
+                        ],
+                        string: "  br label %7, !llvm.loop !5".to_string(),
+                    },
+                },
+                BasicBlock {
+                    name: Name::Number(17),
+                    insts: vec![
+                        Instruction {
+                            opcode: 32,
+                            def: Some(
+                                Name::Number(18),
+                            ),
+                            uses: vec![
+                                Operand {
+                                    constant: false,
+                                    name: Some(
+                                        Name::Number(3),
+                                    ),
+                                    ty: Type {
+                                        id: 15,
+                                        name: "ptr".to_string(),
+                                    },
+                                },
+                            ],
+                            blocks: None,
+                            string: "  %18 = load i32, ptr %3, align 4".to_string(),
+                        },
+                    ],
+                    term: Terminator {
+                        opcode: 1,
+                        def: None,
+                        uses: vec![
+                            Operand {
+                                constant: false,
+                                name: Some(
+                                    Name::Number(18),
+                                ),
+                                ty: Type {
+                                    id: 13,
+                                    name: "i32".to_string(),
+                                },
+                            },
+                        ],
+                        string: "  ret i32 %18".to_string(),
+                    },
+                },
+            ],
+        };
+    let mut lives = init_lives(&f);
+    let len = lives.len();
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(0).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(1).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(2).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(3).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(4).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(5).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(6).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(7).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(8).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(9).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(10).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(11).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(12).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(13).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(14).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(15).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(16).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(17).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(18).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(19).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(20).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(21).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
     assert!(iter.nth(22).is_none());
     assert_eq!(
         lives
