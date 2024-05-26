@@ -1746,6 +1746,7 @@ where
 {
     f: &'b Function,
     lives: &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)],
+    block_indices: HashMap<usize, &'b BasicBlock>,
     iter: I,
 }
 
@@ -1753,12 +1754,25 @@ impl<'a, 'b, I> InIter<'a, 'b, I>
 where
     I: Iterator<Item = usize>,
 {
-    fn new(
+    pub(crate) fn new(
         f: &'b Function,
         lives: &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)],
         iter: I,
     ) -> Self {
-        InIter { f, lives, iter }
+        let (_, block_indices, _bi): (_, _, HashMap<&Name, _>) = f.basic_blocks.iter().fold(
+            (f.params.len(), HashMap::new(), HashMap::new()),
+            |(l, mut m, mut n), b| {
+                m.insert(l, b);
+                n.insert(&b.name, l - f.params.len());
+                (l + b.insts.len() + 1, m, n)
+            },
+        );
+        InIter {
+            f,
+            lives,
+            block_indices,
+            iter,
+        }
     }
 }
 
@@ -1768,19 +1782,10 @@ where
 {
     type Item = ();
     fn next(&mut self) -> Option<Self::Item> {
-        let (_blocks, _cfg) = cfg(self.f);
-        let (_, block_indices, _bi): (_, _, HashMap<&Name, _>) = self.f.basic_blocks.iter().fold(
-            (self.f.params.len(), HashMap::new(), HashMap::new()),
-            |(l, mut m, mut n), b| {
-                m.insert(l, b);
-                n.insert(&b.name, l - self.f.params.len());
-                (l + b.insts.len() + 1, m, n)
-            },
-        );
-
         self.iter.next().map(|j| {
             let i = j + self.f.params.len();
-            let (block_idx, block) = block_indices
+            let (block_idx, block) = self
+                .block_indices
                 .iter()
                 .filter(|&(j, _)| *j <= i)
                 .max_by_key(|&(j, _)| *j)
@@ -3325,7 +3330,7 @@ fn test_in_iter() {
 
 #[test]
 fn test_lva() {
-    use pretty_assertions::{assert_eq, assert_ne};
+    use pretty_assertions::assert_eq;
 
     tracing_subscriber::fmt::init();
 
