@@ -3,8 +3,6 @@
 use std::collections::HashSet;
 
 use dioxus::prelude::*;
-use tracing::Level;
-use wasm_bindgen::prelude::*;
 
 #[component]
 pub fn Lva(lva: Vec<(HashSet<crate::ir::Name>, HashSet<crate::ir::Name>, String)>) -> Element {

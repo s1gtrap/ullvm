@@ -129,8 +129,8 @@ pub fn cfg(
 pub fn def(f: &Function) -> Vec<HashSet<&Name>> {
     tracing::info!("def {}", f.name);
 
-    let (blocks, cfg) = cfg(f);
-    let (_, block_indices, bi): (_, _, HashMap<&Name, _>) = f.basic_blocks.iter().fold(
+    let (_blocks, _cfg) = cfg(f);
+    let (_, block_indices, _bi): (_, _, HashMap<&Name, _>) = f.basic_blocks.iter().fold(
         (f.params.len(), HashMap::new(), HashMap::new()),
         |(l, mut m, mut n), b| {
             m.insert(l, b);
@@ -138,7 +138,7 @@ pub fn def(f: &Function) -> Vec<HashSet<&Name>> {
             (l + b.insts.len() + 1, m, n)
         },
     );
-    let mut lives = vec![
+    let lives = vec![
         (HashSet::<()>::new(), HashSet::<()>::new(), "");
         f.basic_blocks.iter().map(|b| b.insts.len() + 1).sum()
     ];
@@ -154,24 +154,9 @@ pub fn def(f: &Function) -> Vec<HashSet<&Name>> {
             .unwrap();
 
         // in[i] = use[i] U (out[i] - def[i])
-        if let Some(inst) = &block.insts.get(i - (block_idx)) {
+        if let Some(_inst) = &block.insts.get(i - (block_idx)) {
             let def = &block.insts[i - block_idx].def;
             let def: HashSet<_> = def.iter().collect();
-            let r#use: HashSet<_> = if inst.opcode != 55 {
-                block.insts[i - block_idx]
-                    .uses
-                    .iter()
-                    .filter_map(|o| {
-                        if !o.constant && o.ty.id != 8 {
-                            Some(o.name.as_ref().unwrap())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            } else {
-                HashSet::new()
-            };
             defs[j] = def;
         } else {
             let def = &block.term.def;
@@ -205,9 +190,9 @@ fn init_lives(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>, &str)> {
 fn r#use(f: &Function) -> Vec<HashSet<&Name>> {
     tracing::info!("def {}", f.name);
 
-    let (blocks, cfg) = cfg(f);
-    let (block_indices, bi) = block_indices(f);
-    let mut lives = init_lives(f);
+    let (_blocks, _cfg) = cfg(f);
+    let (block_indices, _bi) = block_indices(f);
+    let lives = init_lives(f);
 
     let mut defs = vec![HashSet::new(); lives.len()];
 
@@ -221,8 +206,6 @@ fn r#use(f: &Function) -> Vec<HashSet<&Name>> {
 
         // in[i] = use[i] U (out[i] - def[i])
         if let Some(inst) = &block.insts.get(i - (block_idx)) {
-            let def = &block.insts[i - block_idx].def;
-            let def: HashSet<_> = def.iter().collect();
             let r#use: HashSet<_> = if inst.opcode != 55 {
                 block.insts[i - block_idx]
                     .uses
@@ -240,8 +223,6 @@ fn r#use(f: &Function) -> Vec<HashSet<&Name>> {
             };
             defs[j] = r#use;
         } else {
-            let def = &block.term.def;
-            let def: HashSet<_> = def.iter().collect();
             let r#use: HashSet<_> = block
                 .term
                 .uses
@@ -1759,7 +1740,7 @@ fn test_use() {
     );
 }
 
-struct InIter<'a, 'b, I>(
+pub struct InIter<'a, 'b, I>(
     &'b Function,
     &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)],
     I,
@@ -1773,8 +1754,8 @@ where
 {
     type Item = ();
     fn next(&mut self) -> Option<Self::Item> {
-        let (blocks, cfg) = cfg(self.0);
-        let (_, block_indices, bi): (_, _, HashMap<&Name, _>) = self.0.basic_blocks.iter().fold(
+        let (_blocks, _cfg) = cfg(self.0);
+        let (_, block_indices, _bi): (_, _, HashMap<&Name, _>) = self.0.basic_blocks.iter().fold(
             (self.0.params.len(), HashMap::new(), HashMap::new()),
             |(l, mut m, mut n), b| {
                 m.insert(l, b);
@@ -1832,8 +1813,6 @@ where
     }
 }
 
-fn in_step<'a, 'b>(i: usize, lives: &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)]) {}
-
 #[test]
 fn test_in_iter() {
     let f = Function {
@@ -1875,7 +1854,7 @@ fn test_in_iter() {
     let mut lives = init_lives(&f);
     let len = lives.len();
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.next().is_some());
+    assert!(iter.nth(0).is_some());
     assert_eq!(
         lives
             .iter()
@@ -1890,7 +1869,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(1).next().is_none());
+    assert!(iter.nth(1).is_none());
 
     // for0.ll
     let f = Function {
@@ -2449,7 +2428,7 @@ fn test_in_iter() {
     let mut lives = init_lives(&f);
     let len = lives.len();
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.next().is_some());
+    assert!(iter.nth(0).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2481,39 +2460,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(1).next().is_some());
-    assert_eq!(
-        lives
-            .iter()
-            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
-            .collect::<Vec<_>>(),
-        vec![
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::from([&Name::Number(3)]), HashSet::new()),
-            (HashSet::from([&Name::Number(18)]), HashSet::new()),
-        ]
-    );
-    let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(2).next().is_some());
+    assert!(iter.nth(1).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2545,7 +2492,39 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(3).next().is_some());
+    assert!(iter.nth(2).is_some());
+    assert_eq!(
+        lives
+            .iter()
+            .map(|(r#in, out, _)| (r#in.clone(), out.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (HashSet::from([&Name::Number(18)]), HashSet::new()),
+        ]
+    );
+    let mut iter = InIter(&f, &mut lives, (0..len).rev());
+    assert!(iter.nth(3).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2580,7 +2559,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(4).next().is_some());
+    assert!(iter.nth(4).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2615,7 +2594,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(5).next().is_some());
+    assert!(iter.nth(5).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2650,7 +2629,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(6).next().is_some());
+    assert!(iter.nth(6).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2685,7 +2664,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(7).next().is_some());
+    assert!(iter.nth(7).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2720,7 +2699,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(8).next().is_some());
+    assert!(iter.nth(8).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2755,7 +2734,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(9).next().is_some());
+    assert!(iter.nth(9).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2790,7 +2769,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(10).next().is_some());
+    assert!(iter.nth(10).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2828,7 +2807,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(11).next().is_some());
+    assert!(iter.nth(11).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2866,7 +2845,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(12).next().is_some());
+    assert!(iter.nth(12).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2904,7 +2883,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(13).next().is_some());
+    assert!(iter.nth(13).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2942,7 +2921,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(14).next().is_some());
+    assert!(iter.nth(14).is_some());
     assert_eq!(
         lives
             .iter()
@@ -2980,7 +2959,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(15).next().is_some());
+    assert!(iter.nth(15).is_some());
     assert_eq!(
         lives
             .iter()
@@ -3021,7 +3000,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(16).next().is_some());
+    assert!(iter.nth(16).is_some());
     assert_eq!(
         lives
             .iter()
@@ -3065,7 +3044,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(17).next().is_some());
+    assert!(iter.nth(17).is_some());
     assert_eq!(
         lives
             .iter()
@@ -3109,7 +3088,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(18).next().is_some());
+    assert!(iter.nth(18).is_some());
     assert_eq!(
         lives
             .iter()
@@ -3153,7 +3132,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(19).next().is_some());
+    assert!(iter.nth(19).is_some());
     assert_eq!(
         lives
             .iter()
@@ -3197,7 +3176,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(20).next().is_some());
+    assert!(iter.nth(20).is_some());
     assert_eq!(
         lives
             .iter()
@@ -3241,7 +3220,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(21).next().is_some());
+    assert!(iter.nth(21).is_some());
     assert_eq!(
         lives
             .iter()
@@ -3285,7 +3264,7 @@ fn test_in_iter() {
         ]
     );
     let mut iter = InIter(&f, &mut lives, (0..len).rev());
-    assert!(iter.skip(22).next().is_none());
+    assert!(iter.nth(22).is_none());
     assert_eq!(
         lives
             .iter()
