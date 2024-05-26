@@ -4099,7 +4099,7 @@ fn test_out_iter() {
     ];
     let len = lives.len();
     let mut iter = OutIter::new(&f, &mut lives, (0..len).rev());
-    assert!(iter.nth(0).is_some());
+    assert!(iter.next().is_some());
     assert_eq!(
         lives
             .iter()
@@ -4154,23 +4154,38 @@ fn test_out_iter() {
             (HashSet::new(), HashSet::new()),
             (HashSet::new(), HashSet::new()),
             (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
-            (HashSet::new(), HashSet::new()),
             (HashSet::from([&Name::Number(3)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                HashSet::new()
+            ),
+            (
+                HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(4)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                HashSet::new()
+            ),
+            (HashSet::from([&Name::Number(10)]), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(12)]), HashSet::new()),
+            (HashSet::new(), HashSet::new()),
+            (HashSet::from([&Name::Number(6)]), HashSet::new()),
+            (HashSet::from([&Name::Number(15)]), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                HashSet::new()
+            ),
+            (HashSet::new(), HashSet::new()),
+            (
+                HashSet::from([&Name::Number(3)]),
+                HashSet::from([&Name::Number(18)])
+            ),
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
     );
