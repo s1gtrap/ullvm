@@ -1745,9 +1745,7 @@ pub struct InIter<'a, 'b, I>
 where
     I: Iterator<Item = usize>,
 {
-    f: &'b Function,
     lives: &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)],
-    block_indices: HashMap<usize, &'b BasicBlock>,
     r#use: Vec<HashSet<&'b Name>>,
     def: Vec<HashSet<&'b Name>>,
     iter: I,
@@ -1762,20 +1760,10 @@ where
         lives: &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)],
         iter: I,
     ) -> Self {
-        let (_, block_indices, _bi): (_, _, HashMap<&Name, _>) = f.basic_blocks.iter().fold(
-            (f.params.len(), HashMap::new(), HashMap::new()),
-            |(l, mut m, mut n), b| {
-                m.insert(l, b);
-                n.insert(&b.name, l - f.params.len());
-                (l + b.insts.len() + 1, m, n)
-            },
-        );
-        let r#use = r#use(&f);
-        let def = def(&f);
+        let r#use = r#use(f);
+        let def = def(f);
         InIter {
-            f,
             lives,
-            block_indices,
             r#use,
             def,
             iter,
@@ -1839,7 +1827,7 @@ fn test_in_iter() {
     let mut lives = init_lives(&f);
     let len = lives.len();
     let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
-    assert!(iter.nth(0).is_some());
+    assert!(iter.next().is_some());
     assert_eq!(
         lives
             .iter()
@@ -2413,7 +2401,7 @@ fn test_in_iter() {
     let mut lives = init_lives(&f);
     let len = lives.len();
     let mut iter = InIter::new(&f, &mut lives, (0..len).rev());
-    assert!(iter.nth(0).is_some());
+    assert!(iter.next().is_some());
     assert_eq!(
         lives
             .iter()
@@ -3304,8 +3292,6 @@ where
     lives: &'a mut [(HashSet<&'b Name>, HashSet<&'b Name>, &'b str)],
     block_indices: HashMap<usize, &'b BasicBlock>,
     bi: HashMap<&'b Name, usize>,
-    r#use: Vec<HashSet<&'b Name>>,
-    def: Vec<HashSet<&'b Name>>,
     iter: I,
 }
 
@@ -3327,8 +3313,6 @@ where
                 (l + b.insts.len() + 1, m, n)
             },
         );
-        let r#use = r#use(&f);
-        let def = def(&f);
         OutIter {
             f,
             blocks,
@@ -3336,8 +3320,6 @@ where
             lives,
             block_indices,
             bi,
-            r#use,
-            def,
             iter,
         }
     }
