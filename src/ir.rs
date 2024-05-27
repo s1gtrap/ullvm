@@ -103,7 +103,7 @@ pub fn cfg(
     HashMap<&'_ Name, (&'_ BasicBlock, NodeIndex)>,
     DiGraph<&Name, ()>,
 ) {
-    tracing::info!("cfg {}", f.name);
+    tracing::trace!("cfg {}", f.name);
 
     let mut g = DiGraph::new();
     let blocks: HashMap<&'_ Name, (&'_ BasicBlock, NodeIndex)> = f
@@ -128,7 +128,7 @@ pub fn cfg(
 }
 
 pub fn def(f: &Function) -> Vec<HashSet<&Name>> {
-    tracing::info!("def {}", f.name);
+    tracing::trace!("def {}", f.name);
 
     let (_blocks, _cfg) = cfg(f);
     let (_, block_indices, _bi): (_, _, HashMap<&Name, _>) = f.basic_blocks.iter().fold(
@@ -189,7 +189,7 @@ fn init_lives(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>, &str)> {
 }
 
 fn r#use(f: &Function) -> Vec<HashSet<&Name>> {
-    tracing::info!("def {}", f.name);
+    tracing::trace!("use {}", f.name);
 
     let (_blocks, _cfg) = cfg(f);
     let (block_indices, _bi) = block_indices(f);
@@ -244,7 +244,7 @@ fn r#use(f: &Function) -> Vec<HashSet<&Name>> {
 }
 
 pub fn lva(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>, &str)> {
-    tracing::info!("lva {}", f.name);
+    tracing::trace!("lva {}", f.name);
 
     let (blocks, cfg) = cfg(f);
     let (_, block_indices, bi): (_, _, HashMap<&Name, _>) = f.basic_blocks.iter().fold(
