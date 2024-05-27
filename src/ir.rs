@@ -120,6 +120,7 @@ pub fn cfg(
                 g.add_edge(blocks[&b.name].1, blocks[&l.name.as_ref().unwrap()].1, ());
                 g.add_edge(blocks[&b.name].1, blocks[&r.name.as_ref().unwrap()].1, ());
             }
+            (1, _) => {}
             _ => tracing::warn!("not yet implemented: {:?}", b.term),
         }
     }
