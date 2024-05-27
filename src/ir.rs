@@ -182,10 +182,21 @@ fn block_indices(f: &Function) -> (HashMap<usize, &BasicBlock>, HashMap<&Name, u
 }
 
 fn init_lives(f: &Function) -> Vec<(HashSet<&Name>, HashSet<&Name>, &str)> {
-    vec![
+    let mut lives = vec![
         (HashSet::new(), HashSet::new(), "");
         f.basic_blocks.iter().map(|b| b.insts.len() + 1).sum()
-    ]
+    ];
+    let mut j = 0;
+    for b in &f.basic_blocks {
+        for i in &b.insts {
+            lives[j].2 = &i.string;
+            j += 1;
+        }
+        lives[j].2 = &b.term.string;
+        j += 1;
+    }
+
+    lives
 }
 
 fn r#use(f: &Function) -> Vec<HashSet<&Name>> {
@@ -5443,6 +5454,366 @@ fn test_out_iter() {
             ),
             (HashSet::from([&Name::Number(18)]), HashSet::new()),
         ]
+    );
+}
+
+pub enum IterState {
+    In,
+    Out,
+}
+
+pub enum IterInner<'a, 'b, I>
+where
+    I: Iterator<Item = usize> + Clone,
+{
+    In(InIter<'a, 'b, I>),
+    Out(OutIter<'a, 'b, I>),
+}
+
+pub struct Iter<'a> {
+    //inner: IterInner<'a, 'b, I>,
+    state: IterState,
+    f: &'a Function,
+    blocks: HashMap<&'a Name, (&'a BasicBlock, NodeIndex)>,
+    cfg: DiGraph<&'a Name, ()>,
+    lives: Vec<(HashSet<&'a Name>, HashSet<&'a Name>, &'a str)>,
+    lives_clone: Vec<(HashSet<&'a Name>, HashSet<&'a Name>, &'a str)>,
+    block_indices: HashMap<usize, &'a BasicBlock>,
+    bi: HashMap<&'a Name, usize>,
+    r#use: Vec<HashSet<&'a Name>>,
+    def: Vec<HashSet<&'a Name>>,
+    index_iter: std::iter::Rev<std::ops::Range<usize>>,
+}
+
+impl<'a> Iter<'a> {
+    pub fn new(f: &'a Function) -> Self {
+        let lives = init_lives(f);
+        let iter = (0..lives.len()).rev();
+        let r#use = r#use(f);
+        let def = def(f);
+        let (blocks, cfg) = cfg(f);
+        let (_, block_indices, bi): (_, _, HashMap<&Name, _>) = f.basic_blocks.iter().fold(
+            (f.params.len(), HashMap::new(), HashMap::new()),
+            |(l, mut m, mut n), b| {
+                m.insert(l, b);
+                n.insert(&b.name, l - f.params.len());
+                (l + b.insts.len() + 1, m, n)
+            },
+        );
+        Iter {
+            state: IterState::In,
+            f,
+            blocks,
+            cfg,
+            lives_clone: lives.to_vec(),
+            lives: lives.to_vec(),
+            block_indices,
+            bi,
+            r#use,
+            def,
+            index_iter: iter,
+            //inner: IterInner::In(InIter::new(f, lives, iter)),
+        }
+    }
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = Vec<(HashSet<&'a Name>, HashSet<&'a Name>, &'a str)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.state {
+            IterState::In => {
+                if let Some(j) = self.index_iter.next() {
+                    // in[i] = use[i] U (out[i] - def[i])
+                    let def = &self.def[j];
+                    let r#use = &self.r#use[j];
+                    self.lives[j].0 = r#use.union(&(&self.lives[j].1 - def)).cloned().collect();
+                    Some(self.lives.clone())
+                } else {
+                    self.state = IterState::Out;
+                    self.index_iter = (0..self.lives.len()).rev();
+                    self.next()
+                }
+            }
+            IterState::Out => {
+                if let Some(j) = self.index_iter.next() {
+                    let i = j + self.f.params.len();
+                    let (block_idx, block) = self
+                        .block_indices
+                        .iter()
+                        .filter(|&(j, _)| *j <= i)
+                        .max_by_key(|&(j, _)| *j)
+                        .unwrap();
+
+                    // out[i] = U_s=succ[i] (in[s] U phis[s])
+                    if let Some(_inst) = &block.insts.get(i - (block_idx)) {
+                        // all insts only have one subsequent successor
+                        self.lives[j].1 = self.lives[j + 1].0.clone();
+                    } else {
+                        use petgraph::visit::IntoNodeReferences;
+                        // terminators must be looked up in the cfg
+                        let (idx, _node) = self
+                            .cfg
+                            .node_references()
+                            .find(|(_, n)| ***n == block.name)
+                            .unwrap();
+                        for succ in self.cfg.neighbors(idx) {
+                            let name = self.cfg.node_weight(succ).unwrap();
+                            let (source, _) = self.blocks.get(name).unwrap();
+
+                            // copy in's from each succesor
+                            self.lives[j].1 = self.lives[j]
+                                .1
+                                .union(&self.lives[self.bi[&source.name]].0)
+                                .copied()
+                                .collect();
+
+                            // find phis in each block
+                            for phi in
+                                source.insts.iter().take_while(|i| i.opcode == 55 /* phi */)
+                            {
+                                for (source_name, uses) in
+                                    phi.blocks.as_ref().unwrap().iter().zip(&phi.uses)
+                                {
+                                    if !uses.constant && *source_name == block.name {
+                                        self.lives[j].1.insert(uses.name.as_ref().unwrap());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Some(self.lives.clone())
+                } else {
+                    self.state = IterState::In;
+                    self.index_iter = (0..self.lives.len()).rev();
+                    if self.lives != self.lives_clone {
+                        self.lives_clone = self.lives.clone();
+                        Some(self.lives.clone())
+                    } else {
+                        None
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_iter() {
+    let f = Function {
+        name: "main".to_string(),
+        params: vec![],
+        basic_blocks: vec![BasicBlock {
+            name: Name::Number(0),
+            insts: vec![
+                Instruction {
+                    opcode: 31,
+                    def: Some(Name::Number(1)),
+                    uses: vec![Operand {
+                        constant: true,
+                        name: None,
+                        ty: Type {
+                            id: 13,
+                            name: "i32".to_string(),
+                        },
+                    }],
+                    blocks: None,
+                    string: "  %1 = alloca i32, align 4".to_string(),
+                },
+                Instruction {
+                    opcode: 33,
+                    def: None,
+                    uses: vec![
+                        Operand {
+                            constant: true,
+                            name: None,
+                            ty: Type {
+                                id: 13,
+                                name: "i32".to_string(),
+                            },
+                        },
+                        Operand {
+                            constant: false,
+                            name: Some(Name::Number(1)),
+                            ty: Type {
+                                id: 15,
+                                name: "ptr".to_string(),
+                            },
+                        },
+                    ],
+                    blocks: None,
+                    string: "  store i32 0, ptr %1, align 4".to_string(),
+                },
+            ],
+            term: Terminator {
+                opcode: 1,
+                def: None,
+                uses: vec![Operand {
+                    constant: true,
+                    name: None,
+                    ty: Type {
+                        id: 13,
+                        name: "i32".to_string(),
+                    },
+                }],
+                string: "  ret i32 42".to_string(),
+            },
+        }],
+    };
+    assert_eq!(
+        Iter::new(&f).collect::<Vec<_>>(),
+        vec![
+            vec![
+                (HashSet::new(), HashSet::new(), "  %1 = alloca i32, align 4"),
+                (
+                    HashSet::new(),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4",
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+            ],
+            vec![
+                (HashSet::new(), HashSet::new(), "  %1 = alloca i32, align 4"),
+                (
+                    HashSet::from([&Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4",
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+            ],
+            vec![
+                (HashSet::new(), HashSet::new(), "  %1 = alloca i32, align 4"),
+                (
+                    HashSet::from([&Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4",
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+            ],
+            vec![
+                (HashSet::new(), HashSet::new(), "  %1 = alloca i32, align 4"),
+                (
+                    HashSet::from([&Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4",
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+            ],
+            vec![
+                (HashSet::new(), HashSet::new(), "  %1 = alloca i32, align 4"),
+                (
+                    HashSet::from([&Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4",
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+            ],
+            vec![
+                (
+                    HashSet::new(),
+                    HashSet::from([&Name::Number(1)]),
+                    "  %1 = alloca i32, align 4",
+                ),
+                (
+                    HashSet::from([&Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4",
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+            ],
+            // FIXME: continues for 2n iterations w/o changes
+            vec![
+                (
+                    HashSet::new(),
+                    HashSet::from([&Name::Number(1)]),
+                    "  %1 = alloca i32, align 4",
+                ),
+                (
+                    HashSet::from([&Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4",
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+            ],
+            vec![
+                (
+                    HashSet::new(),
+                    HashSet::from([&Name::Number(1)]),
+                    "  %1 = alloca i32, align 4",
+                ),
+                (
+                    HashSet::from([&Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4",
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+            ],
+            vec![
+                (
+                    HashSet::new(),
+                    HashSet::from([&Name::Number(1)]),
+                    "  %1 = alloca i32, align 4",
+                ),
+                (
+                    HashSet::from([&Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4",
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+            ],
+            vec![
+                (
+                    HashSet::new(),
+                    HashSet::from([&Name::Number(1)]),
+                    "  %1 = alloca i32, align 4",
+                ),
+                (
+                    HashSet::from([&Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4",
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+            ],
+            vec![
+                (
+                    HashSet::new(),
+                    HashSet::from([&Name::Number(1)]),
+                    "  %1 = alloca i32, align 4",
+                ),
+                (
+                    HashSet::from([&Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4",
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+            ],
+            vec![
+                (
+                    HashSet::new(),
+                    HashSet::from([&Name::Number(1)]),
+                    "  %1 = alloca i32, align 4",
+                ),
+                (
+                    HashSet::from([&Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4",
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+            ],
+            vec![
+                (
+                    HashSet::new(),
+                    HashSet::from([&Name::Number(1)]),
+                    "  %1 = alloca i32, align 4",
+                ),
+                (
+                    HashSet::from([&Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4",
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+            ],
+        ],
     );
 }
 
