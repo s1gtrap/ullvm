@@ -39,21 +39,25 @@ pub fn Lva(lva: Vec<(HashSet<crate::ir::Name>, HashSet<crate::ir::Name>, String)
                             || out.contains(&highlight.read().clone().unwrap()))
                     {
 
-                        if !r#in.contains(&highlight.read().clone().unwrap()) {
-                            div { class: "bg-clip-text text-transparent bg-gradient-to-b from-black to-red-500 via-red-500",
-                                "{s}"
+                        div { class: "flex text-red-500",
+                            span { class: "flex-none text-right w-1/4 text-green-700",
+                                "{r#in:?}"
                             }
-                        } else if !out.contains(&highlight.read().clone().unwrap()) {
-
-                            div { class: "bg-clip-text text-transparent bg-gradient-to-b from-red-500 to-black via-red-500",
-                                "{s}"
+                            span { class: "flex-none text-right w-1/4 text-red-700",
+                                "{out:?}"
                             }
-                        } else {
-
-                            div { class: "text-red-500", "{s}" }
+                            span { class: "flex-none w-1/2", "{s}" }
                         }
                     } else {
-                        div { "{s}" }
+                        div { class: "flex",
+                            span { class: "flex-none text-right w-1/4 text-green-700",
+                                "{r#in:?}"
+                            }
+                            span { class: "flex-none text-right w-1/4 text-red-700",
+                                "{out:?}"
+                            }
+                            span { class: "flex-none w-1/2", "{s}" }
+                        }
                     }
                 }
             }

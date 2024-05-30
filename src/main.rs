@@ -73,7 +73,10 @@ fn App() -> Element {
     let mut lva_next = move || {
         tracing::info!("clicked next");
         if let Some(iter) = output_iter.write().get_mut(0) {
-            tracing::info!("next: {:?}", iter.next());
+            if let Some(lives) = iter.next() {
+                tracing::info!("next: {:?}", lives);
+                *output_lva.write() = vec![("main".to_string(), lives)];
+            }
         }
     };
     rsx! {
@@ -193,11 +196,7 @@ fn App() -> Element {
                                                 insns
                                                     .iter()
                                                     .map(|(r#in, out, insn)| {
-                                                        (
-                                                            r#in.into_iter().cloned().cloned().collect(),
-                                                            out.into_iter().cloned().cloned().collect(),
-                                                            format!("{insn}"),
-                                                        )
+                                                        (HashSet::new(), HashSet::new(), format!("{insn}"))
                                                     })
                                                     .collect(),
                                             )
