@@ -5,8 +5,11 @@ use std::collections::HashSet;
 use dioxus::prelude::*;
 
 #[component]
-pub fn Lva(lva: Vec<(HashSet<crate::ir::Name>, HashSet<crate::ir::Name>, String)>) -> Element {
-    let mut names: Vec<_> = lva
+pub fn Lva(
+    old: Vec<(HashSet<crate::ir::Name>, HashSet<crate::ir::Name>, String)>,
+    new: Vec<(HashSet<crate::ir::Name>, HashSet<crate::ir::Name>, String)>,
+) -> Element {
+    let mut names: Vec<_> = new
         .iter()
         .cloned()
         .map(|(r#in, out, _)| r#in.iter().chain(out.iter()).cloned().collect::<Vec<_>>())
@@ -33,7 +36,7 @@ pub fn Lva(lva: Vec<(HashSet<crate::ir::Name>, HashSet<crate::ir::Name>, String)
                 }
             }
             div { class: "font-mono whitespace-pre bg-white box-border",
-                for (r#in , out , s) in &lva {
+                for ((oin , oout , _) , (r#in , out , s)) in old.iter().zip(new) {
                     if highlight.read().is_some()
                         && (r#in.contains(&highlight.read().clone().unwrap())
                             || out.contains(&highlight.read().clone().unwrap()))
@@ -50,11 +53,24 @@ pub fn Lva(lva: Vec<(HashSet<crate::ir::Name>, HashSet<crate::ir::Name>, String)
                         }
                     } else {
                         div { class: "flex",
-                            span { class: "flex-none text-right w-1/4 text-green-700",
-                                "{r#in:?}"
+                            if *oin == r#in {
+
+                                span { class: "flex-none text-right w-1/4 text-green-700",
+                                    "{r#in:?}"
+                                }
+                            } else {
+                                span { class: "flex-none text-right w-1/4 text-green-500",
+                                    "{r#in:?}"
+                                }
                             }
-                            span { class: "flex-none text-right w-1/4 text-red-700",
-                                "{out:?}"
+                            if *oout == out {
+                                span { class: "flex-none text-right w-1/4 text-red-700",
+                                    "{out:?}"
+                                }
+                            } else {
+                                span { class: "flex-none text-right w-1/4 text-red-500",
+                                    "{out:?}"
+                                }
                             }
                             span { class: "flex-none w-1/2", "{s}" }
                         }

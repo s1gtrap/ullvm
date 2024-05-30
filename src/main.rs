@@ -67,15 +67,23 @@ fn App() -> Element {
                 HashSet::<ir::Name>::new(),
                 String::new(),
             )],
+            vec![(
+                HashSet::<ir::Name>::new(),
+                HashSet::<ir::Name>::new(),
+                String::new(),
+            )],
         )]
     });
     let mut output_iter: Signal<Vec<ir::Iter>> = use_signal(|| vec![]);
     let mut lva_next = move || {
         tracing::info!("clicked next");
+
         if let Some(iter) = output_iter.write().get_mut(0) {
             if let Some(lives) = iter.next() {
                 tracing::info!("next: {:?}", lives);
-                *output_lva.write() = vec![("main".to_string(), lives)];
+                let name = output_lva.read()[0].0.clone();
+                let old = output_lva.read()[0].2.clone();
+                *output_lva.write() = vec![(name, old, lives)];
             }
         }
     };
@@ -199,6 +207,12 @@ fn App() -> Element {
                                                         (HashSet::new(), HashSet::new(), format!("{insn}"))
                                                     })
                                                     .collect(),
+                                                insns
+                                                    .iter()
+                                                    .map(|(r#in, out, insn)| {
+                                                        (HashSet::new(), HashSet::new(), format!("{insn}"))
+                                                    })
+                                                    .collect(),
                                             )
                                         })
                                         .collect();
@@ -250,7 +264,7 @@ fn App() -> Element {
                                 "LVA".to_string(),
                                 rsx! {
                                     tabs::Tabs { tabs : output_lva.read().clone().into_iter().map(| a | { (a
-                                    .0.clone(), rsx! { div { lva::Lva { lva : a.1 } div { class :
+                                    .0.clone(), rsx! { div { lva::Lva { old : a.1, new : a.2 } div { class :
                                     "flex columns-4", button { class : "w-full h-12", "<<" } button { class :
                                     "w-full h-12", "<" } button { class : "w-full h-12", onclick : move | _ |
                                     lva_next(), ">" } button { class : "w-full h-12", ">>" } } } }) })
