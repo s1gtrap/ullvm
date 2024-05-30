@@ -69,6 +69,13 @@ fn App() -> Element {
             )],
         )]
     });
+    let mut output_iter: Signal<Vec<ir::Iter>> = use_signal(|| vec![]);
+    let mut lva_next = move || {
+        tracing::info!("clicked next");
+        if let Some(iter) = output_iter.write().get_mut(0) {
+            tracing::info!("next: {:?}", iter.next());
+        }
+    };
     rsx! {
         main { class: "w-full bg-slate-100",
             div { class: "flex",
@@ -196,6 +203,15 @@ fn App() -> Element {
                                             )
                                         })
                                         .collect();
+                                    *output_iter.write() = m
+                                        .functions
+                                        .iter()
+                                        .map(|f| {
+                                            let f: ir::Function = f.clone();
+                                            let iter = ir::Iter::new(&f);
+                                            iter
+                                        })
+                                        .collect();
                                 },
                                 "Parse"
                             }
@@ -237,8 +253,9 @@ fn App() -> Element {
                                     tabs::Tabs { tabs : output_lva.read().clone().into_iter().map(| a | { (a
                                     .0.clone(), rsx! { div { lva::Lva { lva : a.1 } div { class :
                                     "flex columns-4", button { class : "w-full h-12", "<<" } button { class :
-                                    "w-full h-12", "<" } button { class : "w-full h-12", ">" } button { class
-                                    : "w-full h-12", ">>" } } } }) }).collect::< Vec < _ >> (), }
+                                    "w-full h-12", "<" } button { class : "w-full h-12", onclick : move | _ |
+                                    lva_next(), ">" } button { class : "w-full h-12", ">>" } } } }) })
+                                    .collect::< Vec < _ >> (), }
                                 },
                             ),
                         ]

@@ -9,7 +9,7 @@ pub struct Module {
     pub functions: Vec<Function>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct Function {
     #[serde(rename = "GlobalIdentifier")]
     pub name: String,
@@ -35,7 +35,7 @@ impl fmt::Debug for Name {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct Type {
     #[serde(rename = "ID")]
     pub id: usize,
@@ -43,7 +43,7 @@ pub struct Type {
     pub name: String,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct Param {
     #[serde(rename = "Name")]
     pub name: Name,
@@ -51,7 +51,7 @@ pub struct Param {
     pub ty: Type,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct BasicBlock {
     #[serde(rename = "Name")]
     pub name: Name,
@@ -61,7 +61,7 @@ pub struct BasicBlock {
     pub term: Terminator,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct Operand {
     #[serde(rename = "Constant")]
     pub constant: bool,
@@ -71,7 +71,7 @@ pub struct Operand {
     pub ty: Type,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct Instruction {
     #[serde(rename = "Opcode")]
     pub opcode: usize,
@@ -85,7 +85,7 @@ pub struct Instruction {
     pub string: String,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct Terminator {
     #[serde(rename = "Opcode")]
     pub opcode: usize,
@@ -5462,28 +5462,35 @@ pub enum IterState {
     Out,
 }
 
-pub struct Iter<'a> {
+pub struct Iter {
     //inner: IterInner<'a, 'b, I>,
     state: IterState,
-    f: &'a Function,
-    blocks: HashMap<&'a Name, (&'a BasicBlock, NodeIndex)>,
-    cfg: DiGraph<&'a Name, ()>,
-    lives: Vec<(HashSet<&'a Name>, HashSet<&'a Name>, &'a str)>,
-    lives_clone: Vec<(HashSet<&'a Name>, HashSet<&'a Name>, &'a str)>,
-    block_indices: HashMap<usize, &'a BasicBlock>,
-    bi: HashMap<&'a Name, usize>,
-    r#use: Vec<HashSet<&'a Name>>,
-    def: Vec<HashSet<&'a Name>>,
+    f: Function,
+    blocks: HashMap<Name, (BasicBlock, NodeIndex)>,
+    cfg: DiGraph<Name, ()>,
+    lives: Vec<(HashSet<Name>, HashSet<Name>, String)>,
+    lives_clone: Vec<(HashSet<Name>, HashSet<Name>, String)>,
+    block_indices: HashMap<usize, BasicBlock>,
+    bi: HashMap<Name, usize>,
+    r#use: Vec<HashSet<Name>>,
+    def: Vec<HashSet<Name>>,
     index_iter: std::iter::Rev<std::ops::Range<usize>>,
 }
 
-impl<'a> Iter<'a> {
-    pub fn new(f: &'a Function) -> Self {
-        let lives = init_lives(f);
+impl Iter {
+    pub fn new(f: &Function) -> Self {
+        let f = f.clone();
+        let lives = init_lives(&f);
         let iter = (0..lives.len()).rev();
-        let r#use = r#use(f);
-        let def = def(f);
-        let (blocks, cfg) = cfg(f);
+        let r#use = r#use(&f)
+            .iter()
+            .map(|u| u.iter().cloned().cloned().collect())
+            .collect();
+        let def = def(&f)
+            .iter()
+            .map(|d| d.iter().cloned().cloned().collect())
+            .collect();
+        let (blocks, cfg) = cfg(&f);
         let (_, block_indices, bi): (_, _, HashMap<&Name, _>) = f.basic_blocks.iter().fold(
             (f.params.len(), HashMap::new(), HashMap::new()),
             |(l, mut m, mut n), b| {
@@ -5492,13 +5499,36 @@ impl<'a> Iter<'a> {
                 (l + b.insts.len() + 1, m, n)
             },
         );
+        let lives: Vec<_> = lives
+            .iter()
+            .map(|(i, o, s)| {
+                (
+                    i.iter().map(|i| i.clone().clone()).collect(),
+                    o.iter().map(|o| o.clone().clone()).collect(),
+                    s.to_string(),
+                )
+            })
+            .collect();
+        let blocks = blocks
+            .iter()
+            .map(|(k, (b, n))| (k.clone().clone(), (b.clone().clone(), n.clone())))
+            .collect();
+        let cfg = cfg.map(|_, n| n.clone().clone(), |_, _| ());
+        let block_indices = block_indices
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone().clone()))
+            .collect();
+        let bi = bi
+            .iter()
+            .map(|(k, v)| (k.clone().clone(), v.clone()))
+            .collect();
         Iter {
             state: IterState::In,
             f,
             blocks,
             cfg,
             lives_clone: lives.to_vec(),
-            lives: lives.to_vec(),
+            lives,
             block_indices,
             bi,
             r#use,
@@ -5509,8 +5539,8 @@ impl<'a> Iter<'a> {
     }
 }
 
-impl<'a> Iterator for Iter<'a> {
-    type Item = Vec<(HashSet<&'a Name>, HashSet<&'a Name>, &'a str)>;
+impl Iterator for Iter {
+    type Item = Vec<(HashSet<Name>, HashSet<Name>, String)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.state {
@@ -5547,7 +5577,7 @@ impl<'a> Iterator for Iter<'a> {
                         let (idx, _node) = self
                             .cfg
                             .node_references()
-                            .find(|(_, n)| ***n == block.name)
+                            .find(|(_, n)| **n == block.name)
                             .unwrap();
                         for succ in self.cfg.neighbors(idx) {
                             let name = self.cfg.node_weight(succ).unwrap();
@@ -5557,7 +5587,7 @@ impl<'a> Iterator for Iter<'a> {
                             self.lives[j].1 = self.lives[j]
                                 .1
                                 .union(&self.lives[self.bi[&source.name]].0)
-                                .copied()
+                                .cloned()
                                 .collect();
 
                             // find phis in each block
@@ -5568,7 +5598,7 @@ impl<'a> Iterator for Iter<'a> {
                                     phi.blocks.as_ref().unwrap().iter().zip(&phi.uses)
                                 {
                                     if !uses.constant && *source_name == block.name {
-                                        self.lives[j].1.insert(uses.name.as_ref().unwrap());
+                                        self.lives[j].1.insert(uses.name.clone().unwrap());
                                     }
                                 }
                             }
@@ -5659,154 +5689,174 @@ fn test_iter() {
         Iter::new(&f).collect::<Vec<_>>(),
         vec![
             vec![
-                (HashSet::new(), HashSet::new(), "  %1 = alloca i32, align 4"),
                 (
                     HashSet::new(),
                     HashSet::new(),
-                    "  store i32 0, ptr %1, align 4",
+                    "  %1 = alloca i32, align 4".to_string()
                 ),
-                (HashSet::new(), HashSet::new(), "  ret i32 42"),
-            ],
-            vec![
-                (HashSet::new(), HashSet::new(), "  %1 = alloca i32, align 4"),
                 (
-                    HashSet::from([&Name::Number(1)]),
                     HashSet::new(),
-                    "  store i32 0, ptr %1, align 4",
-                ),
-                (HashSet::new(), HashSet::new(), "  ret i32 42"),
-            ],
-            vec![
-                (HashSet::new(), HashSet::new(), "  %1 = alloca i32, align 4"),
-                (
-                    HashSet::from([&Name::Number(1)]),
                     HashSet::new(),
-                    "  store i32 0, ptr %1, align 4",
+                    "  store i32 0, ptr %1, align 4".to_string(),
                 ),
-                (HashSet::new(), HashSet::new(), "  ret i32 42"),
-            ],
-            vec![
-                (HashSet::new(), HashSet::new(), "  %1 = alloca i32, align 4"),
-                (
-                    HashSet::from([&Name::Number(1)]),
-                    HashSet::new(),
-                    "  store i32 0, ptr %1, align 4",
-                ),
-                (HashSet::new(), HashSet::new(), "  ret i32 42"),
-            ],
-            vec![
-                (HashSet::new(), HashSet::new(), "  %1 = alloca i32, align 4"),
-                (
-                    HashSet::from([&Name::Number(1)]),
-                    HashSet::new(),
-                    "  store i32 0, ptr %1, align 4",
-                ),
-                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+                (HashSet::new(), HashSet::new(), "  ret i32 42".to_string()),
             ],
             vec![
                 (
                     HashSet::new(),
-                    HashSet::from([&Name::Number(1)]),
-                    "  %1 = alloca i32, align 4",
+                    HashSet::new(),
+                    "  %1 = alloca i32, align 4".to_string()
                 ),
                 (
-                    HashSet::from([&Name::Number(1)]),
+                    HashSet::from([Name::Number(1)]),
                     HashSet::new(),
-                    "  store i32 0, ptr %1, align 4",
+                    "  store i32 0, ptr %1, align 4".to_string(),
                 ),
-                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+                (HashSet::new(), HashSet::new(), "  ret i32 42".to_string()),
+            ],
+            vec![
+                (
+                    HashSet::new(),
+                    HashSet::new(),
+                    "  %1 = alloca i32, align 4".to_string()
+                ),
+                (
+                    HashSet::from([Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4".to_string(),
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42".to_string()),
+            ],
+            vec![
+                (
+                    HashSet::new(),
+                    HashSet::new(),
+                    "  %1 = alloca i32, align 4".to_string()
+                ),
+                (
+                    HashSet::from([Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4".to_string(),
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42".to_string()),
+            ],
+            vec![
+                (
+                    HashSet::new(),
+                    HashSet::new(),
+                    "  %1 = alloca i32, align 4".to_string()
+                ),
+                (
+                    HashSet::from([Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4".to_string(),
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42".to_string()),
+            ],
+            vec![
+                (
+                    HashSet::new(),
+                    HashSet::from([Name::Number(1)]),
+                    "  %1 = alloca i32, align 4".to_string(),
+                ),
+                (
+                    HashSet::from([Name::Number(1)]),
+                    HashSet::new(),
+                    "  store i32 0, ptr %1, align 4".to_string(),
+                ),
+                (HashSet::new(), HashSet::new(), "  ret i32 42".to_string()),
             ],
             // FIXME: continues for 2n iterations w/o changes
             vec![
                 (
                     HashSet::new(),
-                    HashSet::from([&Name::Number(1)]),
-                    "  %1 = alloca i32, align 4",
+                    HashSet::from([Name::Number(1)]),
+                    "  %1 = alloca i32, align 4".to_string(),
                 ),
                 (
-                    HashSet::from([&Name::Number(1)]),
+                    HashSet::from([Name::Number(1)]),
                     HashSet::new(),
-                    "  store i32 0, ptr %1, align 4",
+                    "  store i32 0, ptr %1, align 4".to_string(),
                 ),
-                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+                (HashSet::new(), HashSet::new(), "  ret i32 42".to_string()),
             ],
             vec![
                 (
                     HashSet::new(),
-                    HashSet::from([&Name::Number(1)]),
-                    "  %1 = alloca i32, align 4",
+                    HashSet::from([Name::Number(1)]),
+                    "  %1 = alloca i32, align 4".to_string(),
                 ),
                 (
-                    HashSet::from([&Name::Number(1)]),
+                    HashSet::from([Name::Number(1)]),
                     HashSet::new(),
-                    "  store i32 0, ptr %1, align 4",
+                    "  store i32 0, ptr %1, align 4".to_string(),
                 ),
-                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+                (HashSet::new(), HashSet::new(), "  ret i32 42".to_string()),
             ],
             vec![
                 (
                     HashSet::new(),
-                    HashSet::from([&Name::Number(1)]),
-                    "  %1 = alloca i32, align 4",
+                    HashSet::from([Name::Number(1)]),
+                    "  %1 = alloca i32, align 4".to_string(),
                 ),
                 (
-                    HashSet::from([&Name::Number(1)]),
+                    HashSet::from([Name::Number(1)]),
                     HashSet::new(),
-                    "  store i32 0, ptr %1, align 4",
+                    "  store i32 0, ptr %1, align 4".to_string(),
                 ),
-                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+                (HashSet::new(), HashSet::new(), "  ret i32 42".to_string()),
             ],
             vec![
                 (
                     HashSet::new(),
-                    HashSet::from([&Name::Number(1)]),
-                    "  %1 = alloca i32, align 4",
+                    HashSet::from([Name::Number(1)]),
+                    "  %1 = alloca i32, align 4".to_string(),
                 ),
                 (
-                    HashSet::from([&Name::Number(1)]),
+                    HashSet::from([Name::Number(1)]),
                     HashSet::new(),
-                    "  store i32 0, ptr %1, align 4",
+                    "  store i32 0, ptr %1, align 4".to_string(),
                 ),
-                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+                (HashSet::new(), HashSet::new(), "  ret i32 42".to_string()),
             ],
             vec![
                 (
                     HashSet::new(),
-                    HashSet::from([&Name::Number(1)]),
-                    "  %1 = alloca i32, align 4",
+                    HashSet::from([Name::Number(1)]),
+                    "  %1 = alloca i32, align 4".to_string(),
                 ),
                 (
-                    HashSet::from([&Name::Number(1)]),
+                    HashSet::from([Name::Number(1)]),
                     HashSet::new(),
-                    "  store i32 0, ptr %1, align 4",
+                    "  store i32 0, ptr %1, align 4".to_string(),
                 ),
-                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+                (HashSet::new(), HashSet::new(), "  ret i32 42".to_string()),
             ],
             vec![
                 (
                     HashSet::new(),
-                    HashSet::from([&Name::Number(1)]),
-                    "  %1 = alloca i32, align 4",
+                    HashSet::from([Name::Number(1)]),
+                    "  %1 = alloca i32, align 4".to_string(),
                 ),
                 (
-                    HashSet::from([&Name::Number(1)]),
+                    HashSet::from([Name::Number(1)]),
                     HashSet::new(),
-                    "  store i32 0, ptr %1, align 4",
+                    "  store i32 0, ptr %1, align 4".to_string(),
                 ),
-                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+                (HashSet::new(), HashSet::new(), "  ret i32 42".to_string()),
             ],
             vec![
                 (
                     HashSet::new(),
-                    HashSet::from([&Name::Number(1)]),
-                    "  %1 = alloca i32, align 4",
+                    HashSet::from([Name::Number(1)]),
+                    "  %1 = alloca i32, align 4".to_string(),
                 ),
                 (
-                    HashSet::from([&Name::Number(1)]),
+                    HashSet::from([Name::Number(1)]),
                     HashSet::new(),
-                    "  store i32 0, ptr %1, align 4",
+                    "  store i32 0, ptr %1, align 4".to_string(),
                 ),
-                (HashSet::new(), HashSet::new(), "  ret i32 42"),
+                (HashSet::new(), HashSet::new(), "  ret i32 42".to_string()),
             ],
         ],
     );
@@ -6396,7 +6446,7 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6419,8 +6469,8 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6443,8 +6493,8 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6466,12 +6516,12 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6491,14 +6541,14 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6517,15 +6567,15 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6544,15 +6594,15 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6569,17 +6619,17 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6595,18 +6645,18 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6621,19 +6671,19 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6648,22 +6698,22 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6676,24 +6726,24 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6705,25 +6755,25 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6735,25 +6785,25 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6763,27 +6813,27 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6793,30 +6843,30 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -6825,1033 +6875,1033 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
                 (HashSet::new(), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)]),
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)]),
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(15)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(15)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(10)]), HashSet::new()),
+                (HashSet::from([Name::Number(10)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
                 ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
-                ),
-                (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
                 ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
-                ),
-                (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::from([&Name::Number(4)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(4)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                    HashSet::from([&Name::Number(10)])
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
+                    HashSet::from([Name::Number(10)])
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
                 ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
-                ),
-                (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(4)]),
-                    HashSet::from([&Name::Number(8), &Name::Number(9)])
+                    HashSet::from([Name::Number(4)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)])
                 ),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                    HashSet::from([&Name::Number(10)])
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
+                    HashSet::from([Name::Number(10)])
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
                 ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
-                ),
-                (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(4)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(4)]),
-                    HashSet::from([&Name::Number(8), &Name::Number(9)])
+                    HashSet::from([Name::Number(4)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)])
                 ),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                    HashSet::from([&Name::Number(10)])
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
+                    HashSet::from([Name::Number(10)])
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
                 ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
-                ),
-                (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(4)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(4)]),
-                    HashSet::from([&Name::Number(8), &Name::Number(9)])
+                    HashSet::from([Name::Number(4)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)])
                 ),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                    HashSet::from([&Name::Number(10)])
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
+                    HashSet::from([Name::Number(10)])
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
                 ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
-                ),
-                (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
                     HashSet::new()
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(4)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(4)]),
-                    HashSet::from([&Name::Number(8), &Name::Number(9)])
+                    HashSet::from([Name::Number(4)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)])
                 ),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                    HashSet::from([&Name::Number(10)])
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
+                    HashSet::from([Name::Number(10)])
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
                 ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
-                ),
-                (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
                     HashSet::new()
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
-                    HashSet::from([&Name::Number(6)])
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
+                    HashSet::from([Name::Number(6)])
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(4)])
-                ),
-                (
-                    HashSet::from([&Name::Number(4)]),
-                    HashSet::from([&Name::Number(8), &Name::Number(9)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                    HashSet::from([&Name::Number(10)])
+                    HashSet::from([Name::Number(4)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)])
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
+                    HashSet::from([Name::Number(10)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
-                ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
-                (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
+                ),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
+                (
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::from([&Name::Number(3)]), HashSet::new()),
+                (HashSet::from([Name::Number(3)]), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
-                    HashSet::from([&Name::Number(1), &Name::Number(5)])
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)])
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
-                    HashSet::from([&Name::Number(6)])
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
+                    HashSet::from([Name::Number(6)])
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(4)])
-                ),
-                (
-                    HashSet::from([&Name::Number(4)]),
-                    HashSet::from([&Name::Number(8), &Name::Number(9)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                    HashSet::from([&Name::Number(10)])
+                    HashSet::from([Name::Number(4)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)])
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
+                    HashSet::from([Name::Number(10)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
-                ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
-                (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
+                ),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
+                (
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
@@ -7859,359 +7909,359 @@ fn test_iter() {
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(0), &Name::Number(4)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
-                    HashSet::from([&Name::Number(1), &Name::Number(5)])
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)])
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
-                    HashSet::from([&Name::Number(6)])
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
+                    HashSet::from([Name::Number(6)])
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(4)])
-                ),
-                (
-                    HashSet::from([&Name::Number(4)]),
-                    HashSet::from([&Name::Number(8), &Name::Number(9)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                    HashSet::from([&Name::Number(10)])
+                    HashSet::from([Name::Number(4)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)])
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
+                    HashSet::from([Name::Number(10)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
-                ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
-                (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
+                ),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
+                (
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(3)])),
+                (HashSet::new(), HashSet::from([Name::Number(3)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(0), &Name::Number(4)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
-                    HashSet::from([&Name::Number(1), &Name::Number(5)])
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)])
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
-                    HashSet::from([&Name::Number(6)])
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
+                    HashSet::from([Name::Number(6)])
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(4)])
-                ),
-                (
-                    HashSet::from([&Name::Number(4)]),
-                    HashSet::from([&Name::Number(8), &Name::Number(9)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                    HashSet::from([&Name::Number(10)])
+                    HashSet::from([Name::Number(4)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)])
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
+                    HashSet::from([Name::Number(10)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
-                ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
-                (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
+                ),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
+                (
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(3)])),
+                (HashSet::new(), HashSet::from([Name::Number(3)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(0), &Name::Number(4)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
-                    HashSet::from([&Name::Number(1), &Name::Number(5)])
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)])
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
-                    HashSet::from([&Name::Number(6)])
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
+                    HashSet::from([Name::Number(6)])
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(4)])
-                ),
-                (
-                    HashSet::from([&Name::Number(4)]),
-                    HashSet::from([&Name::Number(8), &Name::Number(9)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                    HashSet::from([&Name::Number(10)])
+                    HashSet::from([Name::Number(4)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)])
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
+                    HashSet::from([Name::Number(10)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
-                ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
-                (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
+                ),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
+                (
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(3)])),
+                (HashSet::new(), HashSet::from([Name::Number(3)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(0), &Name::Number(4)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
-                    HashSet::from([&Name::Number(1), &Name::Number(5)])
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)])
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
-                    HashSet::from([&Name::Number(6)])
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
+                    HashSet::from([Name::Number(6)])
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(4)])
-                ),
-                (
-                    HashSet::from([&Name::Number(4)]),
-                    HashSet::from([&Name::Number(8), &Name::Number(9)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                    HashSet::from([&Name::Number(10)])
+                    HashSet::from([Name::Number(4)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)])
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
+                    HashSet::from([Name::Number(10)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
-                ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
-                (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
+                ),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
+                (
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(3)])),
+                (HashSet::new(), HashSet::from([Name::Number(3)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(0), &Name::Number(4)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
-                    HashSet::from([&Name::Number(1), &Name::Number(5)])
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)])
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
-                    HashSet::from([&Name::Number(6)])
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
+                    HashSet::from([Name::Number(6)])
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(4)])
-                ),
-                (
-                    HashSet::from([&Name::Number(4)]),
-                    HashSet::from([&Name::Number(8), &Name::Number(9)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                    HashSet::from([&Name::Number(10)])
+                    HashSet::from([Name::Number(4)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)])
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
+                    HashSet::from([Name::Number(10)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
-                ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
-                (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
+                ),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
+                (
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
             vec![
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
                 (HashSet::new(), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(3)])),
+                (HashSet::new(), HashSet::from([Name::Number(3)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(0), &Name::Number(4)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(0), Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(0), &Name::Number(4)]),
-                    HashSet::from([&Name::Number(1), &Name::Number(5)])
+                    HashSet::from([Name::Number(0), Name::Number(4)]),
+                    HashSet::from([Name::Number(1), Name::Number(5)])
                 ),
                 (
-                    HashSet::from([&Name::Number(1), &Name::Number(5)]),
-                    HashSet::from([&Name::Number(6)])
+                    HashSet::from([Name::Number(1), Name::Number(5)]),
+                    HashSet::from([Name::Number(6)])
                 ),
-                (HashSet::from([&Name::Number(6)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::from([Name::Number(6)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(4)])
-                ),
-                (
-                    HashSet::from([&Name::Number(4)]),
-                    HashSet::from([&Name::Number(8), &Name::Number(9)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(4)])
                 ),
                 (
-                    HashSet::from([&Name::Number(8), &Name::Number(9)]),
-                    HashSet::from([&Name::Number(10)])
+                    HashSet::from([Name::Number(4)]),
+                    HashSet::from([Name::Number(8), Name::Number(9)])
                 ),
                 (
-                    HashSet::from([&Name::Number(10)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(3)])
+                    HashSet::from([Name::Number(8), Name::Number(9)]),
+                    HashSet::from([Name::Number(10)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(12)])
-                ),
-                (HashSet::from([&Name::Number(12)]), HashSet::new()),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
-                (
-                    HashSet::from([&Name::Number(6)]),
-                    HashSet::from([&Name::Number(15)])
+                    HashSet::from([Name::Number(10)]),
+                    HashSet::from([Name::Number(6), Name::Number(3)])
                 ),
                 (
-                    HashSet::from([&Name::Number(15)]),
-                    HashSet::from([&Name::Number(6), &Name::Number(16)])
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(12)])
+                ),
+                (HashSet::from([Name::Number(12)]), HashSet::new()),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
+                (
+                    HashSet::from([Name::Number(6)]),
+                    HashSet::from([Name::Number(15)])
                 ),
                 (
-                    HashSet::from([&Name::Number(6), &Name::Number(16)]),
+                    HashSet::from([Name::Number(15)]),
+                    HashSet::from([Name::Number(6), Name::Number(16)])
+                ),
+                (
+                    HashSet::from([Name::Number(6), Name::Number(16)]),
                     HashSet::new()
                 ),
-                (HashSet::new(), HashSet::from([&Name::Number(6)])),
+                (HashSet::new(), HashSet::from([Name::Number(6)])),
                 (
-                    HashSet::from([&Name::Number(3)]),
-                    HashSet::from([&Name::Number(18)])
+                    HashSet::from([Name::Number(3)]),
+                    HashSet::from([Name::Number(18)])
                 ),
-                (HashSet::from([&Name::Number(18)]), HashSet::new()),
+                (HashSet::from([Name::Number(18)]), HashSet::new()),
             ],
         ],
     );
