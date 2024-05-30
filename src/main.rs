@@ -235,8 +235,10 @@ fn App() -> Element {
                                 "LVA".to_string(),
                                 rsx! {
                                     tabs::Tabs { tabs : output_lva.read().clone().into_iter().map(| a | { (a
-                                    .0.clone(), rsx! { lva::Lva { lva : a.1 } }) }).collect::< Vec < _ >> (),
-                                    }
+                                    .0.clone(), rsx! { div { lva::Lva { lva : a.1 } div { class :
+                                    "flex columns-4", button { class : "w-full h-12", "<<" } button { class :
+                                    "w-full h-12", "<" } button { class : "w-full h-12", ">" } button { class
+                                    : "w-full h-12", ">>" } } } }) }).collect::< Vec < _ >> (), }
                                 },
                             ),
                         ]
