@@ -43,10 +43,10 @@ pub fn Lva(
                     {
 
                         div { class: "flex text-red-500",
-                            span { class: "flex-none text-right w-1/4 text-green-700",
+                            span { class: "flex-none text-right w-1/4 text-green-500",
                                 "{r#in:?}"
                             }
-                            span { class: "flex-none text-right w-1/4 text-red-700",
+                            span { class: "flex-none text-right w-1/4 text-red-500",
                                 "{out:?}"
                             }
                             span { class: "flex-none w-1/2", "{s}" }
@@ -55,7 +55,7 @@ pub fn Lva(
                         div { class: "flex",
                             if *oin == r#in {
 
-                                span { class: "flex-none text-right w-1/4 text-green-700",
+                                span { class: "flex-none text-right w-1/4 text-green-900",
                                     "{r#in:?}"
                                 }
                             } else {
@@ -64,7 +64,7 @@ pub fn Lva(
                                 }
                             }
                             if *oout == out {
-                                span { class: "flex-none text-right w-1/4 text-red-700",
+                                span { class: "flex-none text-right w-1/4 text-red-900",
                                     "{out:?}"
                                 }
                             } else {
