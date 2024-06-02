@@ -75,25 +75,56 @@ fn App() -> Element {
         )]
     });
     let mut output_iter: Signal<Vec<ir::Iter>> = use_signal(|| vec![]);
-    let mut lva_next = move || {
-        if let Some(iter) = output_iter.write().get_mut(0) {
-            if let Some(lives) = iter.next() {
-                tracing::info!("next: {:?}", lives);
-                let name = output_lva.read()[0].0.clone();
-                let old = output_lva.read()[0].2.clone();
-                *output_lva.write() = vec![(name, old, lives)];
+    let map_lva = |(i, a): (
+        usize,
+        (
+            String,
+            Vec<(HashSet<ir::Name>, HashSet<ir::Name>, String)>,
+            Vec<(HashSet<ir::Name>, HashSet<ir::Name>, String)>,
+        ),
+    )| {
+        let mut lva_next = move || {
+            if let Some(iter) = output_iter.write().get_mut(i) {
+                if let Some(lives) = iter.next() {
+                    tracing::info!("next: {:?}", lives);
+                    let name = output_lva.read()[i].0.clone();
+                    let old = output_lva.read()[i].2.clone();
+                    output_lva.write()[i] = (name, old, lives);
+                }
             }
-        }
-    };
-    let mut lva_finish = move || {
-        if let Some(iter) = output_iter.write().get_mut(0) {
-            if let Some(lives) = iter.last() {
-                tracing::info!("last: {:?}", lives);
-                let name = output_lva.read()[0].0.clone();
-                let old = output_lva.read()[0].2.clone();
-                *output_lva.write() = vec![(name, old, lives)];
+        };
+        let mut lva_finish = move || {
+            if let Some(iter) = output_iter.write().get_mut(i) {
+                if let Some(lives) = iter.last() {
+                    tracing::info!("last: {:?}", lives);
+                    let name = output_lva.read()[i].0.clone();
+                    let old = output_lva.read()[i].2.clone();
+                    output_lva.write()[i] = (name, old, lives);
+                }
             }
-        }
+        };
+        (
+            a.0.clone(),
+            rsx! {
+                div {
+                    lva::Lva { old: a.1, new: a.2 }
+                    div { class: "flex columns-4",
+                        button { class: "w-full h-12", "<<" }
+                        button { class: "w-full h-12", "<" }
+                        button {
+                            class: "w-full h-12",
+                            onclick: move |_| lva_next(),
+                            ">"
+                        }
+                        button {
+                            class: "w-full h-12",
+                            onclick: move |_| lva_finish(),
+                            ">>"
+                        }
+                    }
+                }
+            },
+        )
     };
     rsx! {
         main { class: "w-full bg-slate-100",
@@ -271,12 +302,8 @@ fn App() -> Element {
                             (
                                 "LVA".to_string(),
                                 rsx! {
-                                    tabs::Tabs { tabs : output_lva.read().clone().into_iter().map(| a | { (a
-                                    .0.clone(), rsx! { div { lva::Lva { old : a.1, new : a.2 } div { class :
-                                    "flex columns-4", button { class : "w-full h-12", "<<" } button { class :
-                                    "w-full h-12", "<" } button { class : "w-full h-12", onclick : move | _ |
-                                    lva_next(), ">" } button { class : "w-full h-12", onclick : move | _ |
-                                    lva_finish(), ">>" } } } }) }).collect::< Vec < _ >> (), }
+                                    tabs::Tabs { tabs : output_lva.read().clone().into_iter().enumerate()
+                                    .map(map_lva).collect::< Vec < _ >> (), }
                                 },
                             ),
                         ]
