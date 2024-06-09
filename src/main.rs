@@ -207,6 +207,7 @@ fn App() -> Element {
                 r#"{{
     "value": {:?},
     "language": "llvm",
+    "minimap": {{ "enabled": false }},
     "automaticLayout": true
 }}"#,
                 include_str!("../examples/ll/for1.ll"),
