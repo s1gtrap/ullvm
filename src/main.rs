@@ -268,6 +268,47 @@ fn App() -> Element {
             ("".to_string(), "".to_string()),
         )])
     });
+    use_effect(move || {
+        let window = web_sys::window().unwrap();
+        let document = window.document().unwrap();
+        let require = js_sys::Reflect::get(&window, &JsValue::from_str("require")).unwrap();
+        let config: js_sys::Function = js_sys::Reflect::get(&require, &JsValue::from_str("config"))
+            .unwrap()
+            .dyn_into()
+            .unwrap();
+        let arg1 = js_sys::JSON::parse(r#"{ "paths": { "vs": "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.49.0/min/vs" } }"#).unwrap();
+        config.call1(&require, &arg1).unwrap();
+        tracing::info!("Configured monaco loader");
+        let require: js_sys::Function = require.dyn_into().unwrap();
+        let arg1 = js_sys::JSON::parse(r#"["vs/editor/editor.main"]"#).unwrap();
+        let callback = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
+            tracing::info!("monaco is ready!");
+            let monaco = js_sys::Reflect::get(&window, &JsValue::from_str("monaco")).unwrap();
+            let editor = js_sys::Reflect::get(&monaco, &JsValue::from_str("editor")).unwrap();
+            let create: js_sys::Function =
+                js_sys::Reflect::get(&editor, &JsValue::from_str("create"))
+                    .unwrap()
+                    .dyn_into()
+                    .unwrap();
+            let container = document.get_element_by_id("container").unwrap();
+            let arg2 = js_sys::JSON::parse(
+                r#"{
+    "value": "function x() {\n\tconsole.log(\"Hello, world!\");\n}",
+    "language": "javascript"
+}"#,
+            )
+            .unwrap();
+            create.call2(&editor, &container, &arg2).unwrap();
+        });
+        require
+            .call2(
+                &wasm_bindgen::JsValue::NULL,
+                &arg1,
+                callback.as_ref().unchecked_ref(),
+            )
+            .unwrap();
+        callback.forget();
+    });
     rsx! {
         main { class: "w-full bg-slate-100",
             div { class: "flex",
