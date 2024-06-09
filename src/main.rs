@@ -268,47 +268,6 @@ fn App() -> Element {
             ("".to_string(), "".to_string()),
         )])
     });
-    use_effect(move || {
-        let window = web_sys::window().unwrap();
-        let document = window.document().unwrap();
-        let require = js_sys::Reflect::get(&window, &JsValue::from_str("require")).unwrap();
-        let config: js_sys::Function = js_sys::Reflect::get(&require, &JsValue::from_str("config"))
-            .unwrap()
-            .dyn_into()
-            .unwrap();
-        let arg1 = js_sys::JSON::parse(r#"{ "paths": { "vs": "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.49.0/min/vs" } }"#).unwrap();
-        config.call1(&require, &arg1).unwrap();
-        tracing::info!("Configured monaco loader");
-        let require: js_sys::Function = require.dyn_into().unwrap();
-        let arg1 = js_sys::JSON::parse(r#"["vs/editor/editor.main"]"#).unwrap();
-        let callback = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
-            tracing::info!("monaco is ready!");
-            let monaco = js_sys::Reflect::get(&window, &JsValue::from_str("monaco")).unwrap();
-            let editor = js_sys::Reflect::get(&monaco, &JsValue::from_str("editor")).unwrap();
-            let create: js_sys::Function =
-                js_sys::Reflect::get(&editor, &JsValue::from_str("create"))
-                    .unwrap()
-                    .dyn_into()
-                    .unwrap();
-            let container = document.get_element_by_id("container").unwrap();
-            let arg2 = js_sys::JSON::parse(
-                r#"{
-    "value": "function x() {\n\tconsole.log(\"Hello, world!\");\n}",
-    "language": "javascript"
-}"#,
-            )
-            .unwrap();
-            create.call2(&editor, &container, &arg2).unwrap();
-        });
-        require
-            .call2(
-                &wasm_bindgen::JsValue::NULL,
-                &arg1,
-                callback.as_ref().unchecked_ref(),
-            )
-            .unwrap();
-        callback.forget();
-    });
     rsx! {
         main { class: "w-full bg-slate-100",
             div { class: "flex",
@@ -491,24 +450,25 @@ fn App() -> Element {
                                             .map(|f| {
                                                 let iter = ir::Iter2::new(&f);
                                                 let opt: Option<ir::Lva2> = iter.last();
-                                                (
-                                                    f.name.clone(),
-                                                    (
-                                                        opt
-                                                            .map(|lva| {
-                                                                let g = interf::interf(&f, lva);
-                                                                let dot = petgraph::dot::Dot::with_attr_getters(
-                                                                    &g,
-                                                                    &[petgraph::dot::Config::EdgeNoLabel],
-                                                                    &|_, _| "color=red".to_string(),
-                                                                    &|_, _| "".to_string(),
-                                                                );
-                                                                format!("{dot:?}")
-                                                            })
-                                                            .unwrap_or("".to_string()),
-                                                        "".to_string(),
-                                                    ),
-                                                )
+                                                if let Some(lva) = opt {
+                                                    let g = interf::interf(f, lva);
+                                                    let cfg_dot = petgraph::dot::Dot::with_attr_getters(
+                                                        &g,
+                                                        &[petgraph::dot::Config::EdgeNoLabel],
+                                                        &|_, _| "".to_string(),
+                                                        &|_, _| "".to_string(),
+                                                    );
+                                                    let cfg_dot = format!("{cfg_dot:?}");
+                                                    let cfg: JsValue = dot
+                                                        .call1(&graphviz, &JsValue::from_str(&cfg_dot))
+                                                        .unwrap()
+                                                        .dyn_into()
+                                                        .unwrap();
+                                                    let svg = cfg.dyn_ref::<js_sys::JsString>().unwrap().to_string();
+                                                    (f.name.clone(), (cfg_dot, svg.into()))
+                                                } else {
+                                                    (f.name.clone(), ("".to_string(), "".to_string()))
+                                                }
                                             })
                                             .collect();
                                     }
