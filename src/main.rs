@@ -206,7 +206,8 @@ fn App() -> Element {
             let arg2 = js_sys::JSON::parse(&format!(
                 r#"{{
     "value": {:?},
-    "language": "llvm"
+    "language": "llvm",
+    "automaticLayout": true
 }}"#,
                 include_str!("../examples/ll/for1.ll"),
             ))
