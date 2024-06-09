@@ -150,12 +150,13 @@ fn App() -> Element {
                     .dyn_into()
                     .unwrap();
             let container = document.get_element_by_id("container").unwrap();
-            let arg2 = js_sys::JSON::parse(
-                r#"{
-    "value": "function x() {\n\tconsole.log(\"Hello, world!\");\n}",
-    "language": "javascript"
-}"#,
-            )
+            let arg2 = js_sys::JSON::parse(&format!(
+                r#"{{
+    "value": {:?},
+    "language": "llvm"
+}}"#,
+                include_str!("../examples/ll/for1.ll"),
+            ))
             .unwrap();
             *editor.write() = Some(create.call2(&monaco_editor, &container, &arg2).unwrap());
         });
