@@ -109,8 +109,8 @@ fn App() -> Element {
                 div {
                     lva::Lva { old: a.1, new: a.2 }
                     div { class: "flex columns-4",
-                        button { class: "w-full h-12", "<<" }
-                        button { class: "w-full h-12", "<" }
+                        button { class: "w-full h-12", disabled: "true", "<<" }
+                        button { class: "w-full h-12", disabled: "true", "<" }
                         button {
                             class: "w-full h-12",
                             onclick: move |_| lva_next(),
