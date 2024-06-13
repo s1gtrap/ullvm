@@ -440,13 +440,12 @@ fn App() -> Element {
                                                 iter_prev::Iter::new(iter)
                                             })
                                             .collect();
-
                                         *output_intf.write() = m
                                             .functions
                                             .iter()
                                             .map(|f| {
-                                                let iter = ir::Iter::new(&f);
-                                                let opt: Option<ir::Lva> = iter.last();
+                                                let iter = ir::Iter2::new(&f);
+                                                let opt: Option<ir::Lva2> = iter.last();
                                                 (
                                                     f.name.clone(),
                                                     opt
@@ -461,9 +460,9 @@ fn App() -> Element {
                                                             format!("{dot:?}")
                                                         })
                                                         .unwrap_or("".to_string()),
-                                            )
-                                        })
-                                        .collect();
+                                                )
+                                            })
+                                            .collect();
                                     }
                                 },
                                 "Parse"
