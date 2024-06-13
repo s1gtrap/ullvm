@@ -270,7 +270,7 @@ fn App() -> Element {
                                                 f.name.clone(),
                                                 opt
                                                     .map(|lva| {
-                                                        let g = interf::interf(lva);
+                                                        let g = interf::interf(f, lva);
                                                         let dot = petgraph::dot::Dot::with_attr_getters(
                                                             &g,
                                                             &[petgraph::dot::Config::EdgeNoLabel],
