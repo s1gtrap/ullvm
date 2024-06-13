@@ -1,12 +1,13 @@
 #![allow(non_snake_case)]
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use dioxus::prelude::*;
 use tracing::Level;
 use wasm_bindgen::prelude::*;
 
 mod code;
+mod interf;
 mod ir;
 mod lva;
 mod tabs;
@@ -75,14 +76,7 @@ fn App() -> Element {
         )]
     });
     let mut output_iter: Signal<Vec<ir::Iter>> = use_signal(|| vec![]);
-    let map_lva = |(i, a): (
-        usize,
-        (
-            String,
-            Vec<(HashSet<ir::Name>, HashSet<ir::Name>, String)>,
-            Vec<(HashSet<ir::Name>, HashSet<ir::Name>, String)>,
-        ),
-    )| {
+    let map_lva = |(i, a): (usize, (String, ir::Lva, ir::Lva))| {
         let mut lva_next = move || {
             if let Some(iter) = output_iter.write().get_mut(i) {
                 if let Some(lives) = iter.next() {
@@ -126,6 +120,8 @@ fn App() -> Element {
             },
         )
     };
+    let mut output_intf =
+        use_signal(|| HashMap::<String, String>::from([("".to_string(), "".to_string())]));
     rsx! {
         main { class: "w-full bg-slate-100",
             div { class: "flex",
@@ -264,6 +260,29 @@ fn App() -> Element {
                                             iter
                                         })
                                         .collect();
+                                    *output_intf.write() = m
+                                        .functions
+                                        .iter()
+                                        .map(|f| {
+                                            let iter = ir::Iter::new(&f);
+                                            let opt: Option<ir::Lva> = iter.last();
+                                            (
+                                                f.name.clone(),
+                                                opt
+                                                    .map(|lva| {
+                                                        let g = interf::interf(lva);
+                                                        let dot = petgraph::dot::Dot::with_attr_getters(
+                                                            &g,
+                                                            &[petgraph::dot::Config::EdgeNoLabel],
+                                                            &|_, _| "color=red".to_string(),
+                                                            &|_, _| "".to_string(),
+                                                        );
+                                                        format!("{dot:?}")
+                                                    })
+                                                    .unwrap_or("".to_string()),
+                                            )
+                                        })
+                                        .collect();
                                 },
                                 "Parse"
                             }
@@ -304,6 +323,14 @@ fn App() -> Element {
                                 rsx! {
                                     tabs::Tabs { tabs : output_lva.read().clone().into_iter().enumerate()
                                     .map(map_lva).collect::< Vec < _ >> (), }
+                                },
+                            ),
+                            (
+                                "Interference".to_string(),
+                                rsx! {
+                                    tabs::Tabs { tabs : output_intf.read().clone().into_iter().map(| (n, g) |
+                                    { (n.clone(), rsx! { div { div { dangerous_inner_html : "{g}", }
+                                    code::Code { code : "{g}" } } }) }).collect::< Vec < _ >> (), }
                                 },
                             ),
                         ]
