@@ -518,7 +518,7 @@ fn App() -> Element {
                                 rsx! {
                                     tabs::Tabs { tabs : output_intf.read().clone().into_iter().map(| (name,
                                     (dot, svg)) | { (name.clone(), rsx! { div { div { dangerous_inner_html :
-                                    "{dot}", } code::Code { code : "{dot}" } } }) }).collect::< Vec < _ >>
+                                    "{svg}", } code::Code { code : "{dot}" } } }) }).collect::< Vec < _ >>
                                     (), }
                                 },
                             ),
