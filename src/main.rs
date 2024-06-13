@@ -264,8 +264,8 @@ fn App() -> Element {
                                         .functions
                                         .iter()
                                         .map(|f| {
-                                            let iter = ir::Iter::new(&f);
-                                            let opt: Option<ir::Lva> = iter.last();
+                                            let iter = ir::Iter2::new(&f);
+                                            let opt: Option<ir::Lva2> = iter.last();
                                             (
                                                 f.name.clone(),
                                                 opt
