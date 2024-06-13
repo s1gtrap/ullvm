@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
+use either::Either;
 use petgraph::graph::{DiGraph, NodeIndex};
 
 #[derive(Debug, serde::Deserialize)]
@@ -5539,8 +5540,10 @@ impl Iter {
     }
 }
 
+pub type Lva = Vec<(HashSet<Name>, HashSet<Name>, String)>;
+
 impl Iterator for Iter {
-    type Item = Vec<(HashSet<Name>, HashSet<Name>, String)>;
+    type Item = Lva;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.state {
@@ -8266,6 +8269,12 @@ fn test_iter() {
         ],
     );
 }
+
+pub type Lva2 = Vec<(
+    HashSet<Name>,
+    HashSet<Name>,
+    Either<crate::ir::Instruction, crate::ir::Terminator>,
+)>;
 
 #[test]
 fn test_lva() {
