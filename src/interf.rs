@@ -13,12 +13,10 @@ pub fn interf(f: &Function, lva: Lva2) -> UnGraph<Name, ()> {
         match inst {
             Either::Left(i) => {
                 for &def in &def[idx] {
-                    let node1 = g.add_node(def.clone());
-                    ids.insert(def, node1);
+                    let node1 = ids.entry(def).or_insert_with(|| g.add_node(def.clone()));
 
                     for out in out {
-                        let node2 = g.add_node(out.clone());
-                        ids.insert(out, node2);
+                        let node2 = ids.entry(out).or_insert_with(|| g.add_node(out.clone()));
                     }
                 }
             }
