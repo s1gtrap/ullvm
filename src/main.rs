@@ -262,8 +262,12 @@ fn App() -> Element {
             .unwrap();
         callback.forget();
     });
-    let mut output_intf =
-        use_signal(|| HashMap::<String, String>::from([("".to_string(), "".to_string())]));
+    let mut output_intf = use_signal(|| {
+        HashMap::<String, (String, String)>::from([(
+            "".to_string(),
+            ("".to_string(), "".to_string()),
+        )])
+    });
     rsx! {
         main { class: "w-full bg-slate-100",
             div { class: "flex",
@@ -448,18 +452,21 @@ fn App() -> Element {
                                                 let opt: Option<ir::Lva2> = iter.last();
                                                 (
                                                     f.name.clone(),
-                                                    opt
-                                                        .map(|lva| {
-                                                            let g = interf::interf(&f, lva);
-                                                            let dot = petgraph::dot::Dot::with_attr_getters(
-                                                                &g,
-                                                                &[petgraph::dot::Config::EdgeNoLabel],
-                                                                &|_, _| "color=red".to_string(),
-                                                                &|_, _| "".to_string(),
-                                                            );
-                                                            format!("{dot:?}")
-                                                        })
-                                                        .unwrap_or("".to_string()),
+                                                    (
+                                                        opt
+                                                            .map(|lva| {
+                                                                let g = interf::interf(&f, lva);
+                                                                let dot = petgraph::dot::Dot::with_attr_getters(
+                                                                    &g,
+                                                                    &[petgraph::dot::Config::EdgeNoLabel],
+                                                                    &|_, _| "color=red".to_string(),
+                                                                    &|_, _| "".to_string(),
+                                                                );
+                                                                format!("{dot:?}")
+                                                            })
+                                                            .unwrap_or("".to_string()),
+                                                        "".to_string(),
+                                                    ),
                                                 )
                                             })
                                             .collect();
@@ -509,9 +516,10 @@ fn App() -> Element {
                             (
                                 "Interference".to_string(),
                                 rsx! {
-                                    tabs::Tabs { tabs : output_intf.read().clone().into_iter().map(| (n, g) |
-                                    { (n.clone(), rsx! { div { div { dangerous_inner_html : "{g}", }
-                                    code::Code { code : "{g}" } } }) }).collect::< Vec < _ >> (), }
+                                    tabs::Tabs { tabs : output_intf.read().clone().into_iter().map(| (name,
+                                    (dot, svg)) | { (name.clone(), rsx! { div { div { dangerous_inner_html :
+                                    "{dot}", } code::Code { code : "{dot}" } } }) }).collect::< Vec < _ >>
+                                    (), }
                                 },
                             ),
                         ]
