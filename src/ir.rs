@@ -36,7 +36,7 @@ impl fmt::Debug for Name {
     }
 }
 
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
 pub struct Type {
     #[serde(rename = "ID")]
     pub id: usize,
@@ -62,7 +62,7 @@ pub struct BasicBlock {
     pub term: Terminator,
 }
 
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
 pub struct Operand {
     #[serde(rename = "Constant")]
     pub constant: bool,
@@ -72,7 +72,7 @@ pub struct Operand {
     pub ty: Type,
 }
 
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
 pub struct Instruction {
     #[serde(rename = "Opcode")]
     pub opcode: usize,
@@ -86,7 +86,7 @@ pub struct Instruction {
     pub string: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
 pub struct Terminator {
     #[serde(rename = "Opcode")]
     pub opcode: usize,
@@ -8275,6 +8275,203 @@ pub type Lva2 = Vec<(
     HashSet<Name>,
     Either<crate::ir::Instruction, crate::ir::Terminator>,
 )>;
+
+fn init_lives2(f: &Function) -> Lva2 {
+    let mut lives: Lva2 = vec![
+        (
+            HashSet::new(),
+            HashSet::new(),
+            Either::Left(Instruction {
+                opcode: 0,
+                def: None,
+                uses: vec![],
+                blocks: None,
+                string: "".to_string(),
+            })
+        );
+        f.basic_blocks.iter().map(|b| b.insts.len() + 1).sum()
+    ];
+    let mut j = 0;
+    for b in &f.basic_blocks {
+        for i in &b.insts {
+            lives[j].2 = Either::Left(i.clone());
+            j += 1;
+        }
+        lives[j].2 = Either::Right(b.term.clone());
+        j += 1;
+    }
+
+    lives
+}
+
+pub struct Iter2 {
+    //inner: IterInner<'a, 'b, I>,
+    state: IterState,
+    f: Function,
+    blocks: HashMap<Name, (BasicBlock, NodeIndex)>,
+    cfg: DiGraph<Name, ()>,
+    lives: Vec<(
+        HashSet<Name>,
+        HashSet<Name>,
+        Either<crate::ir::Instruction, crate::ir::Terminator>,
+    )>,
+    lives_clone: Vec<(
+        HashSet<Name>,
+        HashSet<Name>,
+        Either<crate::ir::Instruction, crate::ir::Terminator>,
+    )>,
+    block_indices: HashMap<usize, BasicBlock>,
+    bi: HashMap<Name, usize>,
+    r#use: Vec<HashSet<Name>>,
+    def: Vec<HashSet<Name>>,
+    index_iter: std::iter::Rev<std::ops::Range<usize>>,
+}
+
+impl Iter2 {
+    pub fn new(f: &Function) -> Self {
+        let f = f.clone();
+        let lives = init_lives2(&f);
+        let iter = (0..lives.len()).rev();
+        let r#use = r#use(&f)
+            .iter()
+            .map(|u| u.iter().cloned().cloned().collect())
+            .collect();
+        let def = def(&f)
+            .iter()
+            .map(|d| d.iter().cloned().cloned().collect())
+            .collect();
+        let (blocks, cfg) = cfg(&f);
+        let (_, block_indices, bi): (_, _, HashMap<&Name, _>) = f.basic_blocks.iter().fold(
+            (f.params.len(), HashMap::new(), HashMap::new()),
+            |(l, mut m, mut n), b| {
+                m.insert(l, b);
+                n.insert(&b.name, l - f.params.len());
+                (l + b.insts.len() + 1, m, n)
+            },
+        );
+        let lives: Vec<_> = lives
+            .iter()
+            .map(|(i, o, s)| {
+                (
+                    i.iter().map(|i| i.clone().clone()).collect::<HashSet<_>>(),
+                    o.iter().map(|o| o.clone().clone()).collect::<HashSet<_>>(),
+                    s.clone(),
+                )
+            })
+            .collect();
+        let blocks = blocks
+            .iter()
+            .map(|(k, (b, n))| (k.clone().clone(), (b.clone().clone(), n.clone())))
+            .collect();
+        let cfg = cfg.map(|_, n| n.clone().clone(), |_, _| ());
+        let block_indices = block_indices
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone().clone()))
+            .collect();
+        let bi = bi
+            .iter()
+            .map(|(k, v)| (k.clone().clone(), v.clone()))
+            .collect();
+        Iter2 {
+            state: IterState::In,
+            f,
+            blocks,
+            cfg,
+            lives_clone: lives
+                .iter()
+                .map(|(a, b, c)| (a.clone(), b.clone(), c.clone().clone()))
+                .collect::<Vec<_>>(),
+            lives,
+            block_indices,
+            bi,
+            r#use,
+            def,
+            index_iter: iter,
+            //inner: IterInner::In(InIter::new(f, lives, iter)),
+        }
+    }
+}
+
+impl Iterator for Iter2 {
+    type Item = Lva2;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.state {
+            IterState::In => {
+                if let Some(j) = self.index_iter.next() {
+                    // in[i] = use[i] U (out[i] - def[i])
+                    let def = &self.def[j];
+                    let r#use = &self.r#use[j];
+                    self.lives[j].0 = r#use.union(&(&self.lives[j].1 - def)).cloned().collect();
+                    Some(self.lives.clone())
+                } else {
+                    self.state = IterState::Out;
+                    self.index_iter = (0..self.lives.len()).rev();
+                    self.next()
+                }
+            }
+            IterState::Out => {
+                if let Some(j) = self.index_iter.next() {
+                    let i = j + self.f.params.len();
+                    let (block_idx, block) = self
+                        .block_indices
+                        .iter()
+                        .filter(|&(j, _)| *j <= i)
+                        .max_by_key(|&(j, _)| *j)
+                        .unwrap();
+
+                    // out[i] = U_s=succ[i] (in[s] U phis[s])
+                    if let Some(_inst) = &block.insts.get(i - (block_idx)) {
+                        // all insts only have one subsequent successor
+                        self.lives[j].1 = self.lives[j + 1].0.clone();
+                    } else {
+                        use petgraph::visit::IntoNodeReferences;
+                        // terminators must be looked up in the cfg
+                        let (idx, _node) = self
+                            .cfg
+                            .node_references()
+                            .find(|(_, n)| **n == block.name)
+                            .unwrap();
+                        for succ in self.cfg.neighbors(idx) {
+                            let name = self.cfg.node_weight(succ).unwrap();
+                            let (source, _) = self.blocks.get(name).unwrap();
+
+                            // copy in's from each succesor
+                            self.lives[j].1 = self.lives[j]
+                                .1
+                                .union(&self.lives[self.bi[&source.name]].0)
+                                .cloned()
+                                .collect();
+
+                            // find phis in each block
+                            for phi in
+                                source.insts.iter().take_while(|i| i.opcode == 55 /* phi */)
+                            {
+                                for (source_name, uses) in
+                                    phi.blocks.as_ref().unwrap().iter().zip(&phi.uses)
+                                {
+                                    if !uses.constant && *source_name == block.name {
+                                        self.lives[j].1.insert(uses.name.clone().unwrap());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Some(self.lives.clone())
+                } else {
+                    self.state = IterState::In;
+                    self.index_iter = (0..self.lives.len()).rev();
+                    if self.lives != self.lives_clone {
+                        self.lives_clone = self.lives.clone();
+                        Some(self.lives.clone())
+                    } else {
+                        None
+                    }
+                }
+            }
+        }
+    }
+}
 
 #[test]
 fn test_lva() {
