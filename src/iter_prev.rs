@@ -38,7 +38,8 @@ where
 
     pub fn first(&mut self) -> Option<<I as Iterator>::Item> {
         if self.0 > 0 {
-            Some(self.2[0].clone())
+            self.0 = 0;
+            Some(self.2[self.0].clone())
         } else {
             self.1.next()
         }

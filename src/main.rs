@@ -125,7 +125,16 @@ fn App() -> Element {
         };
         let mut lva_reset = move || {
             if let Some(iter) = output_iter.write().get_mut(i) {
-                tracing::info!("TODO");
+                let _ = iter.first();
+                let name = output_lva.read()[i].0.clone();
+                let old = output_lva.read()[i].2.clone();
+                output_lva.write()[i] = (
+                    name,
+                    old.clone(),
+                    old.into_iter()
+                        .map(|(_, _, s)| (HashSet::new(), HashSet::new(), s))
+                        .collect(),
+                );
             }
         };
         (
