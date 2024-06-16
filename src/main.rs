@@ -8,6 +8,7 @@ use wasm_bindgen::prelude::*;
 
 mod code;
 mod ir;
+mod iter_prev;
 mod lva;
 mod tabs;
 
@@ -73,7 +74,7 @@ fn App() -> Element {
             )],
         )]
     });
-    let mut output_iter: Signal<Vec<ir::Iter>> = use_signal(|| vec![]);
+    let mut output_iter: Signal<Vec<iter_prev::Iter<ir::Iter>>> = use_signal(|| vec![]);
     let map_lva = |(i, a): (
         usize,
         (
@@ -102,14 +103,47 @@ fn App() -> Element {
                 }
             }
         };
+        let mut lva_prev = move || {
+            if let Some(iter) = output_iter.write().get_mut(i) {
+                if let Some(lives) = iter.prev() {
+                    tracing::info!("prev: {:?}", lives);
+                    let name = output_lva.read()[i].0.clone();
+                    let old = output_lva.read()[i].2.clone();
+                    output_lva.write()[i] = (name, old, lives);
+                } else {
+                    let name = output_lva.read()[i].0.clone();
+                    let old = output_lva.read()[i].2.clone();
+                    output_lva.write()[i] = (
+                        name,
+                        old.clone(),
+                        old.into_iter()
+                            .map(|(_, _, s)| (HashSet::new(), HashSet::new(), s))
+                            .collect(),
+                    );
+                }
+            }
+        };
+        let mut lva_reset = move || {
+            if let Some(iter) = output_iter.write().get_mut(i) {
+                tracing::info!("TODO");
+            }
+        };
         (
             a.0.clone(),
             rsx! {
                 div {
                     lva::Lva { old: a.1, new: a.2 }
                     div { class: "flex columns-4",
-                        button { class: "w-full h-12", "<<" }
-                        button { class: "w-full h-12", "<" }
+                        button {
+                            class: "w-full h-12",
+                            onclick: move |_| lva_reset(),
+                            "<<"
+                        }
+                        button {
+                            class: "w-full h-12",
+                            onclick: move |_| lva_prev(),
+                            "<"
+                        }
                         button {
                             class: "w-full h-12",
                             onclick: move |_| lva_next(),
@@ -398,7 +432,7 @@ fn App() -> Element {
                                             .map(|f| {
                                                 let f: ir::Function = f.clone();
                                                 let iter = ir::Iter::new(&f);
-                                                iter
+                                                iter_prev::Iter::new(iter)
                                             })
                                             .collect();
                                     }

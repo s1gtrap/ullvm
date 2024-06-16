@@ -8271,7 +8271,7 @@ fn test_iter() {
 fn test_lva() {
     use pretty_assertions::assert_eq;
 
-    tracing_subscriber::fmt::init();
+    let _ = tracing_subscriber::fmt::try_init();
 
     // min.ll
     assert_eq!(
