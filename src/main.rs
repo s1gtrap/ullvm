@@ -422,13 +422,13 @@ fn App() -> Element {
                                                     f.name.to_string(),
                                                     insns
                                                         .iter()
-                                                        .map(|(r#in, out, insn)| {
+                                                        .map(|(_in, _out, insn)| {
                                                             (HashSet::new(), HashSet::new(), format!("{insn}"))
                                                         })
                                                         .collect(),
                                                     insns
                                                         .iter()
-                                                        .map(|(r#in, out, insn)| {
+                                                        .map(|(_in, _out, insn)| {
                                                             (HashSet::new(), HashSet::new(), format!("{insn}"))
                                                         })
                                                         .collect(),
