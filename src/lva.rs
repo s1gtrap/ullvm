@@ -12,8 +12,7 @@ pub fn Lva(
     let mut names: Vec<_> = new
         .iter()
         .cloned()
-        .map(|(r#in, out, _)| r#in.iter().chain(out.iter()).cloned().collect::<Vec<_>>())
-        .flatten()
+        .flat_map(|(r#in, out, _)| r#in.iter().chain(out.iter()).cloned().collect::<Vec<_>>())
         .collect();
 
     names.sort();

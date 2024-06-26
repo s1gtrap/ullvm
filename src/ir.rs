@@ -1904,7 +1904,7 @@ impl Iterator for Iter {
                     self.state = IterState::In;
                     self.index_iter = (0..self.lives.len()).rev();
                     if self.lives != self.lives_clone {
-                        self.lives_clone = self.lives.clone();
+                        self.lives_clone.clone_from(&self.lives);
                         Some(self.lives.clone())
                     } else {
                         None
@@ -4602,16 +4602,8 @@ pub struct Iter2 {
     f: Function,
     blocks: HashMap<Name, (BasicBlock, NodeIndex)>,
     cfg: DiGraph<Name, ()>,
-    lives: Vec<(
-        HashSet<Name>,
-        HashSet<Name>,
-        Either<crate::ir::Instruction, crate::ir::Terminator>,
-    )>,
-    lives_clone: Vec<(
-        HashSet<Name>,
-        HashSet<Name>,
-        Either<crate::ir::Instruction, crate::ir::Terminator>,
-    )>,
+    lives: Lva2,
+    lives_clone: Lva2,
     block_indices: HashMap<usize, BasicBlock>,
     bi: HashMap<Name, usize>,
     r#use: Vec<HashSet<Name>>,
@@ -4751,7 +4743,7 @@ impl Iterator for Iter2 {
                     self.state = IterState::In;
                     self.index_iter = (0..self.lives.len()).rev();
                     if self.lives != self.lives_clone {
-                        self.lives_clone = self.lives.clone();
+                        self.lives_clone.clone_from(&self.lives);
                         Some(self.lives.clone())
                     } else {
                         None
