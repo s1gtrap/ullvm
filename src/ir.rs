@@ -5504,25 +5504,22 @@ impl Iter {
             .iter()
             .map(|(i, o, s)| {
                 (
-                    i.iter().map(|i| i.clone().clone()).collect(),
-                    o.iter().map(|o| o.clone().clone()).collect(),
+                    i.iter().map(|&i| i.clone()).collect(),
+                    o.iter().map(|&o| o.clone()).collect(),
                     s.to_string(),
                 )
             })
             .collect();
         let blocks = blocks
             .iter()
-            .map(|(k, (b, n))| (k.clone().clone(), (b.clone().clone(), n.clone())))
+            .map(|(&k, &(b, n))| (k.clone(), (b.clone(), n)))
             .collect();
-        let cfg = cfg.map(|_, n| n.clone().clone(), |_, _| ());
+        let cfg = cfg.map(|_, &n| n.clone(), |_, _| ());
         let block_indices = block_indices
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone().clone()))
+            .map(|(&k, &v)| (k, v.clone()))
             .collect();
-        let bi = bi
-            .iter()
-            .map(|(k, v)| (k.clone().clone(), v.clone()))
-            .collect();
+        let bi = bi.iter().map(|(&k, &v)| (k.clone(), v)).collect();
         Iter {
             state: IterState::In,
             f,
@@ -8361,17 +8358,14 @@ impl Iter2 {
             .collect();
         let blocks = blocks
             .iter()
-            .map(|(k, (b, n))| (k.clone().clone(), (b.clone().clone(), n.clone())))
+            .map(|(&k, &(b, n))| (k.clone(), (b.clone(), n)))
             .collect();
-        let cfg = cfg.map(|_, n| n.clone().clone(), |_, _| ());
+        let cfg = cfg.map(|_, &n| n.clone(), |_, _| ());
         let block_indices = block_indices
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone().clone()))
+            .map(|(&k, &v)| (k, v.clone()))
             .collect();
-        let bi = bi
-            .iter()
-            .map(|(k, v)| (k.clone().clone(), v.clone()))
-            .collect();
+        let bi = bi.iter().map(|(&k, &v)| (k.clone(), v)).collect();
         Iter2 {
             state: IterState::In,
             f,

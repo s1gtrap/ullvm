@@ -75,7 +75,7 @@ fn App() -> Element {
             )],
         )]
     });
-    let mut output_iter: Signal<Vec<iter_prev::Iter<ir::Iter>>> = use_signal(|| vec![]);
+    let mut output_iter: Signal<Vec<iter_prev::Iter<ir::Iter>>> = use_signal(Vec::new);
     let map_lva = |(i, a): (usize, (String, ir::Lva, ir::Lva))| {
         let mut lva_next = move || {
             if let Some(iter) = output_iter.write().get_mut(i) {
@@ -357,7 +357,7 @@ fn App() -> Element {
                                             .unwrap();
                                         tracing::info!("{}", out);
                                         let s: String = out.into();
-                                        *output_json.write() = s.clone();
+                                        output_json.write().clone_from(&s);
                                         let m: llvm_ir::Module = serde_json::from_str(&s).unwrap();
                                         tracing::info!("llvm-ir: {:?}", m);
                                         *output_debug.write() = format!("{:#?}", m);
@@ -423,13 +423,13 @@ fn App() -> Element {
                                                     insns
                                                         .iter()
                                                         .map(|(_in, _out, insn)| {
-                                                            (HashSet::new(), HashSet::new(), format!("{insn}"))
+                                                            (HashSet::new(), HashSet::new(), insn.to_string())
                                                         })
                                                         .collect(),
                                                     insns
                                                         .iter()
                                                         .map(|(_in, _out, insn)| {
-                                                            (HashSet::new(), HashSet::new(), format!("{insn}"))
+                                                            (HashSet::new(), HashSet::new(), insn.to_string())
                                                         })
                                                         .collect(),
                                                 )
@@ -448,7 +448,7 @@ fn App() -> Element {
                                             .functions
                                             .iter()
                                             .map(|f| {
-                                                let iter = ir::Iter2::new(&f);
+                                                let iter = ir::Iter2::new(f);
                                                 let opt: Option<ir::Lva2> = iter.last();
                                                 if let Some(lva) = opt {
                                                     let g = interf::interf(f, lva);
