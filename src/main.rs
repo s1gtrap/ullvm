@@ -3,10 +3,12 @@
 use std::collections::HashSet;
 
 use dioxus::prelude::*;
+use js_sys::Reflect::prevent_extensions;
 use tracing::Level;
 use wasm_bindgen::prelude::*;
 
 mod code;
+mod cursor;
 mod ir;
 mod iter_prev;
 mod lva;
@@ -268,6 +270,7 @@ fn App() -> Element {
             .unwrap();
         callback.forget();
     });
+    let prev_iter = use_signal(|| iter_prev::Iter::new(0..5));
     rsx! {
         main { class: "w-full bg-slate-100",
             div { class: "flex",
@@ -485,6 +488,12 @@ fn App() -> Element {
                                 rsx! {
                                     tabs::Tabs { tabs : output_lva.read().clone().into_iter().enumerate()
                                     .map(map_lva).collect::< Vec < _ >> (), }
+                                },
+                            ),
+                            (
+                                "Cursor".to_string(),
+                                rsx! {
+                                    cursor::Cursor { init: 69, iter : prev_iter }
                                 },
                             ),
                         ]
