@@ -8,6 +8,13 @@ pub fn Cursor<I: Iterator<Item = u8> + std::cmp::PartialEq + 'static>(
     let mut body = use_signal(|| init.to_string());
     let mut is_first = use_signal(|| true);
     let mut is_last = use_signal(|| false);
+    let mut first = move || {
+        *is_first.write() = true;
+        *is_last.write() = false;
+        if let Some(_i) = iter.write().first() {
+            *body.write() = init.to_string();
+        }
+    };
     let mut prev = move || {
         *is_last.write() = false;
         if let Some(i) = iter.write().prev() {
@@ -43,6 +50,7 @@ pub fn Cursor<I: Iterator<Item = u8> + std::cmp::PartialEq + 'static>(
                 button {
                     class: "grow bg-white disabled:bg-slate-50 disabled:text-slate-500",
                     disabled: is_first,
+                    onclick: move |_| first(),
                     "<<"
                 }
                 button {
