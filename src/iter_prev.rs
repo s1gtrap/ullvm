@@ -17,14 +17,14 @@ where
 impl<I> Iter<I>
 where
     I: Iterator,
-    <I as Iterator>::Item: Clone + fmt::Debug,
+    <I as Iterator>::Item: Clone,
 {
     pub fn new(i: I) -> Self {
         Iter(0, i, vec![])
     }
 
     pub fn prev(&mut self) -> Option<<I as Iterator>::Item> {
-        tracing::trace!("prev({self:?})");
+        //tracing::trace!("prev({self:?})");
         if self.0 > 0 {
             self.0 -= 1;
             Some(self.2[self.0].clone())
@@ -49,13 +49,13 @@ where
 impl<I> Iterator for Iter<I>
 where
     I: Iterator,
-    <I as Iterator>::Item: Clone + fmt::Debug,
+    <I as Iterator>::Item: Clone,
 {
     type Item = <I as Iterator>::Item;
 
     #[inline]
     fn next(&mut self) -> Option<<I as Iterator>::Item> {
-        tracing::trace!("next({self:?})");
+        //tracing::trace!("next({self:?})");
         if self.0 == self.2.len() {
             if let Some(e) = self.1.next() {
                 self.0 += 1;

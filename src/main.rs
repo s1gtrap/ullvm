@@ -56,11 +56,19 @@ extern "C" {
 }
 
 #[component]
-fn U8(i: u8) -> Element {
+pub fn U8(i: u8) -> Element {
     rsx! {
-        p {
-            "{i}"
-        }
+        p { "{i}" }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct U8Iter(std::ops::Range<u8>);
+
+impl Iterator for U8Iter {
+    type Item = U8Props;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|i| U8Props { i })
     }
 }
 
@@ -279,7 +287,7 @@ fn App() -> Element {
             .unwrap();
         callback.forget();
     });
-    let prev_iter = use_signal(|| iter_prev::Iter::new(0..5));
+    let prev_iter = use_signal(|| iter_prev::Iter::new(U8Iter(0..5)));
     rsx! {
         main { class: "w-full bg-slate-100",
             div { class: "flex",
@@ -502,7 +510,7 @@ fn App() -> Element {
                             (
                                 "Cursor".to_string(),
                                 rsx! {
-                                    cursor::Cursor { init : U8Props { i: 69 }, iter : prev_iter, c: U8 }
+                                    cursor::Cursor { init : U8Props { i : 69 }, iter : prev_iter, c : U8 }
                                 },
                             ),
                         ]

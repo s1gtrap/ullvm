@@ -18,35 +18,38 @@ fn Generic<P: Properties + std::cmp::PartialEq>(p: P, c: Component<P>) -> Elemen
 #[component]
 pub fn Cursor<
     P: Properties + std::cmp::PartialEq,
-    I: Iterator<Item = u8> + std::cmp::PartialEq + 'static,
+    I: Iterator<Item = P> + std::cmp::PartialEq + 'static,
 >(
     init: P,
     iter: Signal<crate::iter_prev::Iter<I>>,
     c: Component<P>,
 ) -> Element {
-    let mut body = use_signal(|| init);
+    let mut body = use_signal(|| init.clone());
     let mut is_first = use_signal(|| true);
     let mut is_last = use_signal(|| false);
-    let mut first = move || {
-        *is_first.write() = true;
-        *is_last.write() = false;
-        if let Some(_i) = iter.write().first() {
-            //*body.write() = init.to_string();
+    let mut first = {
+        let init = init.clone();
+        move || {
+            *is_first.write() = true;
+            *is_last.write() = false;
+            if let Some(_i) = iter.write().first() {
+                *body.write() = init.clone();
+            }
         }
     };
     let mut prev = move || {
         *is_last.write() = false;
         if let Some(i) = iter.write().prev() {
-            //*body.write() = i.to_string();
+            *body.write() = i.clone();
         } else {
-            //*body.write() = init.to_string();
+            *body.write() = init.clone();
             *is_first.write() = true;
         }
     };
     let mut next = move || {
         *is_first.write() = false;
         if let Some(i) = iter.write().next() {
-            //*body.write() = i.to_string();
+            *body.write() = i.clone();
         } else {
             *is_last.write() = true;
         }
@@ -55,15 +58,13 @@ pub fn Cursor<
         *is_first.write() = false;
         *is_last.write() = true;
         if let Some(i) = iter.write().by_ref().last() {
-            //*body.write() = i.to_string();
+            *body.write() = i.clone();
         }
     };
     //Generic { p: EmptyProps { p: () }, c: Empty }
     rsx! {
         div { class: "flex flex-col h-full",
-            div { class: "grow",
-                {c(body.read().clone())}
-            }
+            div { class: "grow", {c(body.read().clone())} }
             div { class: "flex h-12 w-full",
                 button {
                     class: "grow bg-white disabled:bg-slate-50 disabled:text-slate-500",
