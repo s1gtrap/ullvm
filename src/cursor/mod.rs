@@ -1,6 +1,21 @@
 use dioxus::prelude::*;
 
 #[component]
+fn Empty(p: ()) -> Element {
+    rsx! {
+
+        p { "asd" }
+    }
+}
+
+#[component]
+fn Generic<P: Properties + std::cmp::PartialEq>(p: P, c: Component<P>) -> Element {
+    rsx! {
+        p { {c(p)} }
+    }
+}
+
+#[component]
 pub fn Cursor<I: Iterator<Item = u8> + std::cmp::PartialEq + 'static>(
     init: u8,
     iter: Signal<crate::iter_prev::Iter<I>>,
@@ -41,12 +56,10 @@ pub fn Cursor<I: Iterator<Item = u8> + std::cmp::PartialEq + 'static>(
     };
     rsx! {
         div { class: "flex flex-col h-full",
-            div {
-                class: "grow",
-                "{body}"
+            div { class: "grow",
+                Generic { p: EmptyProps { p: () }, c: Empty }
             }
-            div {
-                class: "flex h-12 w-full",
+            div { class: "flex h-12 w-full",
                 button {
                     class: "grow bg-white disabled:bg-slate-50 disabled:text-slate-500",
                     disabled: is_first,

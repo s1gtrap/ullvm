@@ -493,7 +493,7 @@ fn App() -> Element {
                             (
                                 "Cursor".to_string(),
                                 rsx! {
-                                    cursor::Cursor { init: 69, iter : prev_iter }
+                                    cursor::Cursor { init : 69, iter : prev_iter }
                                 },
                             ),
                         ]
