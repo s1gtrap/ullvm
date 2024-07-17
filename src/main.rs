@@ -56,6 +56,15 @@ extern "C" {
 }
 
 #[component]
+fn U8(i: u8) -> Element {
+    rsx! {
+        p {
+            "{i}"
+        }
+    }
+}
+
+#[component]
 fn App() -> Element {
     let mut output_json = use_signal(|| "".to_owned());
     let mut output_debug = use_signal(|| "".to_owned());
@@ -493,7 +502,7 @@ fn App() -> Element {
                             (
                                 "Cursor".to_string(),
                                 rsx! {
-                                    cursor::Cursor { init : 69, iter : prev_iter }
+                                    cursor::Cursor { init : U8Props { i: 69 }, iter : prev_iter, c: U8 }
                                 },
                             ),
                         ]
