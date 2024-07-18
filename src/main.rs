@@ -15,6 +15,7 @@ mod iter_prev;
 mod llvm;
 mod lva;
 mod tabs;
+mod util;
 
 fn main() {
     console_error_panic_hook::set_once();

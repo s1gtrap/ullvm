@@ -3,6 +3,8 @@
 use dioxus::prelude::*;
 use wasm_bindgen::prelude::*;
 
+use crate::util;
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = "Module")]
@@ -126,14 +128,20 @@ pub fn Editor(content: String, onChange: EventHandler<String>) -> Element {
                 .call2(&languages, &JsValue::from_str("llvm"), &arg2)
                 .unwrap();
 
+            let theme = if util::dark_mode().unwrap() {
+                "vs-dark"
+            } else {
+                "vs"
+            };
             let arg2 = js_sys::JSON::parse(&format!(
                 r#"{{
     "value": {:?},
     "language": "llvm",
     "minimap": {{ "enabled": false }},
-    "automaticLayout": true
+    "automaticLayout": true,
+    "theme": {:?}
 }}"#,
-                content,
+                content, theme,
             ))
             .unwrap();
 
