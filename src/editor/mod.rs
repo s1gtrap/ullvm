@@ -19,6 +19,23 @@ extern "C" {
 pub fn Editor(content: String, onChange: EventHandler<String>) -> Element {
     let mut editor = use_signal(|| None::<JsValue>);
 
+    if let Some(ref editor) = *editor.read() {
+        let get_model: js_sys::Function =
+            js_sys::Reflect::get(editor, &JsValue::from_str("getModel"))
+                .unwrap()
+                .dyn_into()
+                .unwrap();
+        let model = get_model.call0(editor).unwrap();
+        let set_value: js_sys::Function =
+            js_sys::Reflect::get(&model, &JsValue::from_str("setValue"))
+                .unwrap()
+                .dyn_into()
+                .unwrap();
+        set_value
+            .call1(&model, &JsValue::from_str(&content))
+            .unwrap();
+    }
+
     use_effect(move || {
         tracing::info!("effect");
         let window = web_sys::window().unwrap();
