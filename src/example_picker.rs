@@ -20,7 +20,7 @@ pub fn ExamplePicker(onpick: EventHandler<String>) -> Element {
     rsx! {
         select {
             id: "example-picker",
-            class: "h-12 w-full bg-slate-100",
+            class: "bg-zinc-100 dark:bg-zinc-800 h-12 w-full",
             onchange: move |e: Event<FormData>| {
                 let pick = e.data.value().parse::<usize>().unwrap() - 1;
                 let input = EXAMPLES[pick].1;

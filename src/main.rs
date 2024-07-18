@@ -184,7 +184,7 @@ fn App() -> Element {
     };
 
     rsx! {
-        main { class: "w-full bg-slate-100",
+        main { class: "bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-300 w-full",
             div { class: "flex",
                 div { class: "w-1/2 lg:w-1/3",
                     div { class: "flex flex-col h-screen",
@@ -196,7 +196,7 @@ fn App() -> Element {
                         }
                         div { class: "flex-none",
                             button {
-                                class: "h-12 w-full bg-slate-100",
+                                class: "bg-zinc-100 dark:bg-zinc-800 h-12 w-full",
                                 onclick: onclickparse,
                                 "Parse"
                             }

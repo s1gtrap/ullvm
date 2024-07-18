@@ -133,7 +133,7 @@ pub fn Editor(content: String, onChange: EventHandler<String>) -> Element {
     "minimap": {{ "enabled": false }},
     "automaticLayout": true
 }}"#,
-                content
+                content,
             ))
             .unwrap();
 

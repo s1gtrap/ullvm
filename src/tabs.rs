@@ -12,7 +12,7 @@ pub fn Tabs(tabs: Vec<(String, Element)>) -> Element {
                     for (i , (t , _)) in tabs.iter().enumerate() {
                         li { class: "flex-1",
                             button {
-                                class: "h-12 bg-slate-100 w-full",
+                                class: "bg-zinc-100 dark:bg-zinc-800 h-12 w-full",
                                 onclick: move |_| {
                                     *active.write() = i;
                                 },
