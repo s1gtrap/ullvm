@@ -8,6 +8,7 @@ use wasm_bindgen::prelude::*;
 
 mod code;
 mod editor;
+mod example_picker;
 mod ir;
 mod iter_prev;
 mod lva;
@@ -32,21 +33,6 @@ fn main() {
 
     launch(App);
 }
-
-macro_rules! test {
-    ($($data:expr),* $(,)?)  => {
-        [ $( ($data, include_str!(concat!("../examples/ll/", $data))) ),* ]
-    };
-}
-
-const EXAMPLES: &[(&str, &str)] = &test![
-    "min.ll",
-    "ret.ll",
-    "for0.ll",
-    "for1.ll",
-    "fib.ll",
-    "brainfuck.ll",
-];
 
 #[wasm_bindgen]
 extern "C" {
@@ -177,20 +163,7 @@ fn App() -> Element {
                 div { class: "w-1/2 lg:w-1/3",
                     div { class: "flex flex-col h-screen",
                         div { class: "flex-none",
-                            select {
-                                id: "example-picker",
-                                class: "h-12 w-full bg-slate-100",
-                                onchange: move |e: Event<FormData>| {
-                                    let pick = e.data.value().parse::<usize>().unwrap() - 1;
-                                    let input = EXAMPLES[pick].1;
-                                    tracing::info!("input changed to: \"{}\"", input);
-                                    *content.write() = input.to_string();
-                                },
-                                option { value: "0", disabled: true, "-- example --" }
-                                for (i , (n , _)) in EXAMPLES.iter().enumerate() {
-                                    option { key: "{i}", value: "{i + 1}", "{n}" }
-                                }
-                            }
+                            example_picker::ExamplePicker { onpick: move |s| *content.write() = s }
                         }
                         div { class: "flex-1",
                             editor::Editor { content, onChange: move |s| *content.write() = s }
