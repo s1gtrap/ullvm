@@ -7,6 +7,7 @@ use tracing::Level;
 use wasm_bindgen::prelude::*;
 
 mod code;
+mod editor;
 mod ir;
 mod iter_prev;
 mod lva;
@@ -268,6 +269,10 @@ fn App() -> Element {
             .unwrap();
         callback.forget();
     });
+    let mut content = use_signal(|| "hello".to_string());
+    use_effect(move || {
+        tracing::info!("CHANGE {:?}", content.read());
+    });
     rsx! {
         main { class: "w-full bg-slate-100",
             div { class: "flex",
@@ -312,7 +317,12 @@ fn App() -> Element {
                             }
                         }
                         div { class: "flex-1",
-                            div { id: "container", class: "w-full h-full" }
+                            editor::Editor {
+                                content,
+                                onChange: move |s| {
+                                    *content.write() = s;
+                                }
+                            }
                         }
                         div { class: "flex-none",
                             button {
