@@ -230,15 +230,11 @@ fn App() -> Element {
                     f.name.to_string(),
                     insns
                         .iter()
-                        .map(|(r#in, out, insn)| {
-                            (HashSet::new(), HashSet::new(), format!("{insn}"))
-                        })
+                        .map(|(_in, _out, insn)| (HashSet::new(), HashSet::new(), insn.to_string()))
                         .collect(),
                     insns
                         .iter()
-                        .map(|(r#in, out, insn)| {
-                            (HashSet::new(), HashSet::new(), format!("{insn}"))
-                        })
+                        .map(|(_in, _out, insn)| (HashSet::new(), HashSet::new(), insn.to_string()))
                         .collect(),
                 )
             })
