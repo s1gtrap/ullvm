@@ -12,8 +12,7 @@ pub fn Lva(
     let mut names: Vec<_> = new
         .iter()
         .cloned()
-        .map(|(r#in, out, _)| r#in.iter().chain(out.iter()).cloned().collect::<Vec<_>>())
-        .flatten()
+        .flat_map(|(r#in, out, _)| r#in.iter().chain(out.iter()).cloned().collect::<Vec<_>>())
         .collect();
 
     names.sort();
@@ -28,7 +27,7 @@ pub fn Lva(
                 onchange: move |e: Event<FormData>| {
                     tracing::info!("{e:?}");
                     let h: Option<usize> = e.data.value().parse().ok();
-                    *highlight.write() = h.map(|i| names[i].clone()).clone();
+                    highlight.write().clone_from(&h.map(|i| names[i].clone()));
                 },
                 option { "None" }
                 for (i , name) in names.iter().enumerate() {

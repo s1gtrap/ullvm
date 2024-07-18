@@ -32,7 +32,6 @@ extern "C" {
 
 #[component]
 fn App() -> Element {
-    let mut output_abstract = use_signal(|| "".to_owned());
     let mut output_cfg = use_signal(|| vec![(String::new(), String::new(), String::new())]);
     let mut output_lva = use_signal(|| {
         vec![(
@@ -49,14 +48,10 @@ fn App() -> Element {
             )],
         )]
     });
-    let mut output_iter: Signal<Vec<iter_prev::Iter<ir::Iter>>> = use_signal(|| vec![]);
+    let mut output_iter: Signal<Vec<iter_prev::Iter<ir::Iter>>> = use_signal(Vec::new);
     let map_lva = |(i, a): (
         usize,
-        (
-            String,
-            Vec<(HashSet<ir::Name>, HashSet<ir::Name>, String)>,
-            Vec<(HashSet<ir::Name>, HashSet<ir::Name>, String)>,
-        ),
+        (String, Vec<ir::OwnedInstLive>, Vec<ir::OwnedInstLive>),
     )| {
         let mut lva_next = move || {
             if let Some(iter) = output_iter.write().get_mut(i) {
@@ -211,12 +206,6 @@ fn App() -> Element {
                 div { class: "w-1/2 lg:w-2/3",
                     tabs::Tabs {
                         tabs: vec![
-                            (
-                                "Abstract".to_string(),
-                                rsx! {
-                                    code::Code { code : output_abstract }
-                                },
-                            ),
                             (
                                 "CFG".to_string(),
                                 rsx! {
