@@ -11,20 +11,9 @@ mod editor;
 mod example_picker;
 mod ir;
 mod iter_prev;
+mod llvm;
 mod lva;
 mod tabs;
-
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_name = "Module")]
-    type Module;
-
-    #[wasm_bindgen(static_method_of = Module)]
-    fn ccall(id: JsValue, rty: JsValue, targs: JsValue, args: JsValue) -> JsValue;
-
-    #[wasm_bindgen(static_method_of = Module)]
-    fn UTF8ToString(data: JsValue) -> JsValue;
-}
 
 fn main() {
     console_error_panic_hook::set_once();
@@ -42,8 +31,6 @@ extern "C" {
 
 #[component]
 fn App() -> Element {
-    let mut output_json = use_signal(|| "".to_owned());
-    let mut output_debug = use_signal(|| "".to_owned());
     let mut output_abstract = use_signal(|| "".to_owned());
     let mut output_cfg = use_signal(|| vec![(String::new(), String::new(), String::new())]);
     let mut output_lva = use_signal(|| {
@@ -160,33 +147,8 @@ fn App() -> Element {
 
     let onclickparse = move |_| async move {
         let input = content.read().clone();
-        Module::ccall(
-            JsValue::from_str("parse"),
-            JsValue::NULL,
-            js_sys::Array::of1(&JsValue::from_str("string")).into(),
-            js_sys::Array::of1(&JsValue::from_str(&input)).into(),
-        );
-        let ptr = Module::ccall(
-            JsValue::from_str("json"),
-            JsValue::from_str("number"),
-            js_sys::Array::new().into(),
-            js_sys::Array::new().into(),
-        );
-        let str = Module::UTF8ToString(ptr).as_string().unwrap();
-        let obj = js_sys::JSON::parse(&str).unwrap();
-        let out: js_sys::JsString = js_sys::JSON::stringify_with_replacer_and_space(
-            &obj,
-            &JsValue::NULL,
-            &JsValue::from_f64(1.0),
-        )
-        .unwrap();
-        tracing::info!("{}", out);
-        let s: String = out.into();
-        *output_json.write() = s.clone();
-        let m: llvm_ir::Module = serde_json::from_str(&s).unwrap();
-        tracing::info!("llvm-ir: {:?}", m);
-        *output_debug.write() = format!("{:#?}", m);
-        let m: ir::Module = serde_json::from_str(&s).unwrap();
+        let m: ir::Module = llvm::parse(&input);
+
         tracing::info!("abstract: {:?}", m);
         *output_abstract.write() = format!("{:#?}", m);
         let window = web_sys::window().unwrap();
@@ -273,18 +235,6 @@ fn App() -> Element {
                 div { class: "w-1/2 lg:w-2/3",
                     tabs::Tabs {
                         tabs: vec![
-                            (
-                                "JSON".to_string(),
-                                rsx! {
-                                    code::Code { code : output_json }
-                                },
-                            ),
-                            (
-                                "Debug".to_string(),
-                                rsx! {
-                                    code::Code { code : output_debug }
-                                },
-                            ),
                             (
                                 "Abstract".to_string(),
                                 rsx! {
