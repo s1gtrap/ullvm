@@ -26,14 +26,25 @@ pub fn Editor(content: String, onChange: EventHandler<String>) -> Element {
                 .dyn_into()
                 .unwrap();
         let model = get_model.call0(editor).unwrap();
-        let set_value: js_sys::Function =
-            js_sys::Reflect::get(&model, &JsValue::from_str("setValue"))
+
+        let get_value: js_sys::Function =
+            js_sys::Reflect::get(&model, &JsValue::from_str("getValue"))
                 .unwrap()
                 .dyn_into()
                 .unwrap();
-        set_value
-            .call1(&model, &JsValue::from_str(&content))
-            .unwrap();
+        let con: JsValue = get_value.call0(&model).unwrap();
+        let con = con.as_string().unwrap();
+
+        if con != content {
+            let set_value: js_sys::Function =
+                js_sys::Reflect::get(&model, &JsValue::from_str("setValue"))
+                    .unwrap()
+                    .dyn_into()
+                    .unwrap();
+            set_value
+                .call1(&model, &JsValue::from_str(&content))
+                .unwrap();
+        }
     }
 
     use_effect(move || {
