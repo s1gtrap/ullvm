@@ -157,6 +157,103 @@ fn App() -> Element {
     };
 
     let mut content = use_signal(|| include_str!("../examples/ll/for1.ll").to_string());
+
+    let onclickparse = move |_| async move {
+        let input = content.read().clone();
+        Module::ccall(
+            JsValue::from_str("parse"),
+            JsValue::NULL,
+            js_sys::Array::of1(&JsValue::from_str("string")).into(),
+            js_sys::Array::of1(&JsValue::from_str(&input)).into(),
+        );
+        let ptr = Module::ccall(
+            JsValue::from_str("json"),
+            JsValue::from_str("number"),
+            js_sys::Array::new().into(),
+            js_sys::Array::new().into(),
+        );
+        let str = Module::UTF8ToString(ptr).as_string().unwrap();
+        let obj = js_sys::JSON::parse(&str).unwrap();
+        let out: js_sys::JsString = js_sys::JSON::stringify_with_replacer_and_space(
+            &obj,
+            &JsValue::NULL,
+            &JsValue::from_f64(1.0),
+        )
+        .unwrap();
+        tracing::info!("{}", out);
+        let s: String = out.into();
+        *output_json.write() = s.clone();
+        let m: llvm_ir::Module = serde_json::from_str(&s).unwrap();
+        tracing::info!("llvm-ir: {:?}", m);
+        *output_debug.write() = format!("{:#?}", m);
+        let m: ir::Module = serde_json::from_str(&s).unwrap();
+        tracing::info!("abstract: {:?}", m);
+        *output_abstract.write() = format!("{:#?}", m);
+        let window = web_sys::window().unwrap();
+        let hpccWasm = js_sys::Reflect::get(&window, &JsValue::from_str("@hpcc-js/wasm")).unwrap();
+        tracing::info!("{hpccWasm:?}");
+        let graphviz = js_sys::Reflect::get(&hpccWasm, &JsValue::from_str("Graphviz")).unwrap();
+        tracing::info!("{graphviz:?}");
+        let load = js_sys::Reflect::get(&graphviz, &JsValue::from_str("load")).unwrap();
+        let load: &js_sys::Function = load.dyn_ref().unwrap();
+        let promise: js_sys::Promise = load.call0(&graphviz).unwrap().dyn_into().unwrap();
+        tracing::info!("{promise:?}");
+        let graphviz = wasm_bindgen_futures::JsFuture::from(promise).await.unwrap();
+        let dot = js_sys::Reflect::get(&graphviz, &JsValue::from_str("dot")).unwrap();
+        let dot: &js_sys::Function = dot.dyn_ref().unwrap();
+        tracing::info!("{dot:?}");
+        *output_cfg.write() = m
+            .functions
+            .iter()
+            .map(|f| {
+                let (_blocks, cfg) = ir::cfg(f);
+                let cfg_dot = format!(
+                    "{:?}",
+                    petgraph::dot::Dot::with_config(&cfg, &[petgraph::dot::Config::EdgeNoLabel],),
+                );
+                let cfg: JsValue = dot
+                    .call1(&graphviz, &JsValue::from_str(&cfg_dot))
+                    .unwrap()
+                    .dyn_into()
+                    .unwrap();
+                tracing::info!("{cfg:?}");
+                let svg = cfg.dyn_ref::<js_sys::JsString>().unwrap().to_string();
+                (f.name.clone(), cfg_dot, svg.into())
+            })
+            .collect();
+        *output_lva.write() = m
+            .functions
+            .iter()
+            .map(|f| {
+                let insns = ir::lva(f);
+                (
+                    f.name.to_string(),
+                    insns
+                        .iter()
+                        .map(|(r#in, out, insn)| {
+                            (HashSet::new(), HashSet::new(), format!("{insn}"))
+                        })
+                        .collect(),
+                    insns
+                        .iter()
+                        .map(|(r#in, out, insn)| {
+                            (HashSet::new(), HashSet::new(), format!("{insn}"))
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+        *output_iter.write() = m
+            .functions
+            .iter()
+            .map(|f| {
+                let f: ir::Function = f.clone();
+                let iter = ir::Iter::new(&f);
+                iter_prev::Iter::new(iter)
+            })
+            .collect();
+    };
+
     rsx! {
         main { class: "w-full bg-slate-100",
             div { class: "flex",
@@ -171,110 +268,7 @@ fn App() -> Element {
                         div { class: "flex-none",
                             button {
                                 class: "h-12 w-full bg-slate-100",
-                                onclick: move |_| async move {
-                                    let input = content.read().clone();
-                                    Module::ccall(
-                                        JsValue::from_str("parse"),
-                                        JsValue::NULL,
-                                        js_sys::Array::of1(&JsValue::from_str("string")).into(),
-                                        js_sys::Array::of1(&JsValue::from_str(&input)).into(),
-                                    );
-                                    let ptr = Module::ccall(
-                                        JsValue::from_str("json"),
-                                        JsValue::from_str("number"),
-                                        js_sys::Array::new().into(),
-                                        js_sys::Array::new().into(),
-                                    );
-                                    let str = Module::UTF8ToString(ptr).as_string().unwrap();
-                                    let obj = js_sys::JSON::parse(&str).unwrap();
-                                    let out: js_sys::JsString = js_sys::JSON::stringify_with_replacer_and_space(
-                                            &obj,
-                                            &JsValue::NULL,
-                                            &JsValue::from_f64(1.0),
-                                        )
-                                        .unwrap();
-                                    tracing::info!("{}", out);
-                                    let s: String = out.into();
-                                    *output_json.write() = s.clone();
-                                    let m: llvm_ir::Module = serde_json::from_str(&s).unwrap();
-                                    tracing::info!("llvm-ir: {:?}", m);
-                                    *output_debug.write() = format!("{:#?}", m);
-                                    let m: ir::Module = serde_json::from_str(&s).unwrap();
-                                    tracing::info!("abstract: {:?}", m);
-                                    *output_abstract.write() = format!("{:#?}", m);
-                                    let window = web_sys::window().unwrap();
-                                    let hpccWasm = js_sys::Reflect::get(&window, &JsValue::from_str("@hpcc-js/wasm"))
-                                        .unwrap();
-                                    tracing::info!("{hpccWasm:?}");
-                                    let graphviz = js_sys::Reflect::get(&hpccWasm, &JsValue::from_str("Graphviz"))
-                                        .unwrap();
-                                    tracing::info!("{graphviz:?}");
-                                    let load = js_sys::Reflect::get(&graphviz, &JsValue::from_str("load")).unwrap();
-                                    let load: &js_sys::Function = load.dyn_ref().unwrap();
-                                    let promise: js_sys::Promise = load
-                                        .call0(&graphviz)
-                                        .unwrap()
-                                        .dyn_into()
-                                        .unwrap();
-                                    tracing::info!("{promise:?}");
-                                    let graphviz = wasm_bindgen_futures::JsFuture::from(promise).await.unwrap();
-                                    let dot = js_sys::Reflect::get(&graphviz, &JsValue::from_str("dot")).unwrap();
-                                    let dot: &js_sys::Function = dot.dyn_ref().unwrap();
-                                    tracing::info!("{dot:?}");
-                                    *output_cfg.write() = m
-                                        .functions
-                                        .iter()
-                                        .map(|f| {
-                                            let (_blocks, cfg) = ir::cfg(f);
-                                            let cfg_dot = format!(
-                                                "{:?}",
-                                                petgraph::dot::Dot::with_config(
-                                                    &cfg,
-                                                    &[petgraph::dot::Config::EdgeNoLabel],
-                                                ),
-                                            );
-                                            let cfg: JsValue = dot
-                                                .call1(&graphviz, &JsValue::from_str(&cfg_dot))
-                                                .unwrap()
-                                                .dyn_into()
-                                                .unwrap();
-                                            tracing::info!("{cfg:?}");
-                                            let svg = cfg.dyn_ref::<js_sys::JsString>().unwrap().to_string();
-                                            (f.name.clone(), cfg_dot, svg.into())
-                                        })
-                                        .collect();
-                                    *output_lva.write() = m
-                                        .functions
-                                        .iter()
-                                        .map(|f| {
-                                            let insns = ir::lva(f);
-                                            (
-                                                f.name.to_string(),
-                                                insns
-                                                    .iter()
-                                                    .map(|(r#in, out, insn)| {
-                                                        (HashSet::new(), HashSet::new(), format!("{insn}"))
-                                                    })
-                                                    .collect(),
-                                                insns
-                                                    .iter()
-                                                    .map(|(r#in, out, insn)| {
-                                                        (HashSet::new(), HashSet::new(), format!("{insn}"))
-                                                    })
-                                                    .collect(),
-                                            )
-                                        })
-                                        .collect();
-                                    *output_iter.write() = m
-                                        .functions
-                                        .iter()
-                                        .map(|f| {
-                                            let f: ir::Function = f.clone();
-                                            let iter = ir::Iter::new(&f);
-                                            iter_prev::Iter::new(iter)
-                                        })
-                                        .collect();
-                                },
+                                onclick: onclickparse,
                                 "Parse"
                             }
                         }
