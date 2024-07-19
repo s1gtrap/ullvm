@@ -211,7 +211,7 @@ fn App() -> Element {
                                 "CFG".to_string(),
                                 rsx! {
                                     tabs::Tabs { tabs : output_cfg.read().clone().into_iter().map(| s | { (s
-                                    .0.clone(), rsx! { div { div { dangerous_inner_html : "{s.2}", }
+                                    .0.clone(), rsx! { div { div { class: "dark:invert", dangerous_inner_html : "{s.2}", }
                                     code::Code { code : "{s.1}" } } }) }).collect::< Vec < _ >> (), }
                                 },
                             ),
