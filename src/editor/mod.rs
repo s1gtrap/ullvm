@@ -199,6 +199,45 @@ pub fn Editor(content: String, onChange: EventHandler<String>) -> Element {
         callback.forget();
     });
 
+    use_effect(move || {
+        if editor.read().is_some() {
+            // register an event listener for whether to use dark mode if editor is set
+
+            let window = web_sys::window().unwrap();
+            let callback = wasm_bindgen::closure::Closure::<dyn FnMut(JsValue)>::new(move |_| {
+                // NOTE: setTheme is only defined for window.monaco.editor: https://stackoverflow.com/a/52357826/5479994
+                let window = web_sys::window().unwrap();
+                let monaco = js_sys::Reflect::get(&window, &JsValue::from_str("monaco")).unwrap();
+                let editor = js_sys::Reflect::get(&monaco, &JsValue::from_str("editor")).unwrap();
+
+                let set_theme: js_sys::Function =
+                    js_sys::Reflect::get(&editor, &JsValue::from_str("setTheme"))
+                        .unwrap()
+                        .dyn_into()
+                        .unwrap();
+
+                let theme = if util::dark_mode().unwrap() {
+                    "vs-dark"
+                } else {
+                    "vs"
+                };
+
+                set_theme
+                    .call1(&wasm_bindgen::JsValue::NULL, &JsValue::from_str(theme))
+                    .unwrap();
+            });
+
+            window
+                .match_media("(prefers-color-scheme: dark)")
+                .unwrap()
+                .unwrap()
+                .add_event_listener_with_callback("change", callback.as_ref().unchecked_ref())
+                .unwrap();
+
+            callback.forget();
+        }
+    });
+
     rsx! {
         div { id: "container", class: "w-full h-full" }
     }
