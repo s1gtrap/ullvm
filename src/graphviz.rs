@@ -7,6 +7,7 @@ pub async fn svg(
 
     let window = web_sys::window().unwrap();
     let hpccWasm = js_sys::Reflect::get(&window, &JsValue::from_str("@hpcc-js/wasm")).unwrap();
+
     tracing::info!("{hpccWasm:?}");
     let graphviz = js_sys::Reflect::get(&hpccWasm, &JsValue::from_str("Graphviz")).unwrap();
     tracing::info!("{graphviz:?}");

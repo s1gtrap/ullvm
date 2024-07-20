@@ -148,7 +148,13 @@ fn App() -> Element {
 
         *output_cfg.write() = futures::future::join_all(m.functions.iter().map(|f| async {
             let (_blocks, cfg) = ir::cfg(f);
-            let dot = petgraph::dot::Dot::with_config(&cfg, &[petgraph::dot::Config::EdgeNoLabel]);
+            let dot = petgraph::dot::Dot::with_config(
+                &cfg,
+                &[
+                    petgraph::dot::Config::EdgeNoLabel,
+                    petgraph::dot::Config::_GraphAttr("bgcolor", "transparent"),
+                ],
+            );
             let svg = graphviz::svg(&dot).await;
             (f.name.clone(), format!("{dot:?}"), svg)
         }))

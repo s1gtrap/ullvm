@@ -22,7 +22,7 @@ pub fn Tabs(tabs: Vec<(String, Element)>) -> Element {
                     }
                 }
             }
-            div { class: "flex-1 overflow-scroll", {&tabs[*active.read()].1} }
+            div { class: "bg-white dark:bg-zinc-900 flex-1 overflow-scroll", {&tabs[*active.read()].1} }
         }
     }
 }
