@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 pub fn Tabs(tabs: Vec<(String, Element)>) -> Element {
     let mut active = use_signal(|| 0);
     rsx! {
-        div { class: "flex flex-col h-screen",
+        div { class: "flex flex-col h-full",
             nav { class: "flex-none",
                 ul { class: "flex",
                     for (i , (t , _)) in tabs.iter().enumerate() {

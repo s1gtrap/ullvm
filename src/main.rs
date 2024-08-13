@@ -192,9 +192,9 @@ fn App() -> Element {
 
     rsx! {
         main { class: "bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-300 w-full",
-            div { class: "flex",
-                div { class: "w-1/2 lg:w-1/3",
-                    div { class: "flex flex-col h-screen",
+            div { class: "flex flex-col md:flex-row h-screen",
+                div { class: "h-1/2 w-full md:h-full md:w-1/2 lg:w-1/3",
+                    div { class: "flex flex-col h-full",
                         div { class: "flex-none",
                             example_picker::ExamplePicker { onpick: move |s| *content.write() = s }
                         }
@@ -210,15 +210,16 @@ fn App() -> Element {
                         }
                     }
                 }
-                div { class: "w-1/2 lg:w-2/3",
+                div { class: "bg-green-500 h-1/2 md:h-full md:w-1/2 lg:w-2/3",
                     tabs::Tabs {
                         tabs: vec![
                             (
                                 "CFG".to_string(),
                                 rsx! {
                                     tabs::Tabs { tabs : output_cfg.read().clone().into_iter().map(| s | { (s
-                                    .0.clone(), rsx! { div { div { class: "dark:invert", dangerous_inner_html : "{s.2}", }
-                                    code::Code { code : "{s.1}" } } }) }).collect::< Vec < _ >> (), }
+                                    .0.clone(), rsx! { div { div { class : "dark:invert",
+                                    dangerous_inner_html : "{s.2}", } code::Code { code : "{s.1}" } } }) })
+                                    .collect::< Vec < _ >> (), }
                                 },
                             ),
                             (
