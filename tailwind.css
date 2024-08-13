@@ -1,5 +1,5 @@
 /*
-! tailwindcss v3.4.6 | MIT License | https://tailwindcss.com
+! tailwindcss v3.4.9 | MIT License | https://tailwindcss.com
 */
 
 /*
@@ -620,6 +620,10 @@ video {
   height: 100vh;
 }
 
+.h-1\/2 {
+  height: 50%;
+}
+
 .w-1\/2 {
   width: 50%;
 }
@@ -657,9 +661,9 @@ video {
   white-space: pre;
 }
 
-.bg-slate-100 {
+.bg-green-500 {
   --tw-bg-opacity: 1;
-  background-color: rgb(241 245 249 / var(--tw-bg-opacity));
+  background-color: rgb(34 197 94 / var(--tw-bg-opacity));
 }
 
 .bg-white {
@@ -700,11 +704,6 @@ video {
   color: rgb(127 29 29 / var(--tw-text-opacity));
 }
 
-.invert {
-  --tw-invert: invert(100%);
-  filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
-}
-
 .filter {
   filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
 }
@@ -712,6 +711,20 @@ video {
 .item {
   height: 50%;
   /* courtesy of https://stackoverflow.com/questions/69280251/how-can-i-make-the-monaco-editor-size-to-its-parent-div */
+}
+
+@media (min-width: 768px) {
+  .md\:h-full {
+    height: 100%;
+  }
+
+  .md\:w-1\/2 {
+    width: 50%;
+  }
+
+  .md\:flex-row {
+    flex-direction: row;
+  }
 }
 
 @media (min-width: 1024px) {
@@ -725,16 +738,6 @@ video {
 }
 
 @media (prefers-color-scheme: dark) {
-  .dark\:bg-slate-900 {
-    --tw-bg-opacity: 1;
-    background-color: rgb(15 23 42 / var(--tw-bg-opacity));
-  }
-
-  .dark\:bg-slate-800 {
-    --tw-bg-opacity: 1;
-    background-color: rgb(30 41 59 / var(--tw-bg-opacity));
-  }
-
   .dark\:bg-zinc-800 {
     --tw-bg-opacity: 1;
     background-color: rgb(39 39 42 / var(--tw-bg-opacity));
@@ -743,26 +746,6 @@ video {
   .dark\:bg-zinc-900 {
     --tw-bg-opacity: 1;
     background-color: rgb(24 24 27 / var(--tw-bg-opacity));
-  }
-
-  .dark\:text-white {
-    --tw-text-opacity: 1;
-    color: rgb(255 255 255 / var(--tw-text-opacity));
-  }
-
-  .dark\:text-zinc-100 {
-    --tw-text-opacity: 1;
-    color: rgb(244 244 245 / var(--tw-text-opacity));
-  }
-
-  .dark\:text-zinc-200 {
-    --tw-text-opacity: 1;
-    color: rgb(228 228 231 / var(--tw-text-opacity));
-  }
-
-  .dark\:text-zinc-500 {
-    --tw-text-opacity: 1;
-    color: rgb(113 113 122 / var(--tw-text-opacity));
   }
 
   .dark\:text-zinc-300 {
