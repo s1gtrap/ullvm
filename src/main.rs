@@ -152,16 +152,16 @@ pub fn DrawGraph(i: Graph) -> Element {
                     let r = n % 3;
                     let g = (n / 3) % 3;
                     let b = (n / 9) % 3;
-                    let lumi = 0.2126 * (r as f32 * 255.0)
-                        + 0.7152 * (g as f32 * 255.0)
-                        + 0.0722 * (b as f32 * 255.0); // per ITU-R BT.709
+                    let lumi = 0.2126 * (r as f32 * 100.0)
+                        + 0.7152 * (g as f32 * 100.0)
+                        + 0.0722 * (b as f32 * 100.0); // per ITU-R BT.709
                     tracing::info!("lumi={lumi}");
                     format!(
                         "style=filled,color=\"#{:0>2x}{:0>2x}{:0>2x}\"{}",
                         r * 0x7f,
                         g * 0x7f,
                         b * 0x7f,
-                        if lumi < 128.0 { ",fontcolor=white" } else { "" }
+                        if lumi < 40.0 { ",fontcolor=white" } else { "" }
                     )
                 }
                 None => String::new(),
