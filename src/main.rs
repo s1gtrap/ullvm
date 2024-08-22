@@ -124,22 +124,32 @@ impl PartialEq<Graph> for Graph {
 #[component]
 pub fn DrawGraph(i: Graph) -> Element {
     use petgraph::dot::Dot;
+
     let mut svg = use_signal(|| None::<String>);
     let g = i.0.clone();
     use_future(move || {
         let g = g.clone();
         async move {
-            let g = g.clone();
-            let dot = Dot::new(&g);
-            tracing::info!("GEN");
-            let dotsvg = graphviz::svg2(&dot).await;
-            tracing::info!("DONE {svg:?}");
-            *svg.write() = Some(dotsvg.to_string());
+            let dot = Dot::with_attr_getters(
+                &g,
+                &[petgraph::dot::Config::EdgeNoLabel],
+                &|_, _| String::new(),
+                &|_, n| {
+                    use petgraph::visit::NodeRef;
+                    let n = n.weight().unwrap_or(0);
+                    let r = n % 3;
+                    let g = (n / 3) % 3;
+                    let b = (n / 9) % 3;
+                    format!("style=filled,color=\"#{:0>2x}24f6\"", r * 0x7f)
+                },
+            );
+            *svg.write() = Some(graphviz::svg2(&dot).await.to_string());
         }
     });
+
     rsx! {
         p {
-            dangerous_inner_html: svg().unwrap_or("todo".into()),
+            dangerous_inner_html: svg().unwrap_or("".into()),
         }
     }
 }
@@ -156,7 +166,29 @@ impl GraphIter {
 impl Iterator for GraphIter {
     type Item = DrawGraphProps;
     fn next(&mut self) -> Option<Self::Item> {
-        Some(DrawGraphProps { i: self.0.clone() }) // TODO: this
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        tracing::info!("NEXT");
+        if rng.gen_range(0..100) > 1 {
+            tracing::info!("some");
+            Some(DrawGraphProps { i: self.0.clone() }) // TODO: this
+        } else {
+            tracing::info!("none");
+            None
+        }
+        // use petgraph::visit::IntoNodeReferences;
+        // use rand::Rng;
+        // let n = self.0 .0.node_count() as u32;
+        // let mut rng = rand::thread_rng();
+        // let i = rng.gen_range(0..n);
+        // let c = self
+        //     .0
+        //      .0
+        //     .node_references()
+        //     .filter(|(_, c)| c.is_some())
+        //     .count();
+        // *self.0 .0.node_weight_mut(i.into()).unwrap() = Some(c);
+        // Some(DrawGraphProps { i: self.0.clone() }) // TODO: this
     }
 }
 

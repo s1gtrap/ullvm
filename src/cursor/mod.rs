@@ -47,6 +47,7 @@ pub fn Cursor<
         }
     };
     let mut next = move || {
+        tracing::info!("next");
         *is_first.write() = false;
         if let Some(i) = iter.write().next() {
             *body.write() = i.clone();
