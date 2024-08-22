@@ -117,6 +117,11 @@ where
 
 impl PartialEq<Graph> for Graph {
     fn eq(&self, other: &Graph) -> bool {
+        tracing::info!(
+            "{:?} ?= {:?}",
+            petgraph::dot::Dot::new(&self.0),
+            petgraph::dot::Dot::new(&other.0)
+        );
         graph_eq(&self.0, &other.0)
     }
 }
@@ -124,26 +129,35 @@ impl PartialEq<Graph> for Graph {
 #[component]
 pub fn DrawGraph(i: Graph) -> Element {
     use petgraph::dot::Dot;
+    tracing::info!("draw_graph");
 
     let mut svg = use_signal(|| None::<String>);
     let g = i.0.clone();
-    use_future(move || {
-        let g = g.clone();
-        async move {
-            let dot = Dot::with_attr_getters(
-                &g,
-                &[petgraph::dot::Config::EdgeNoLabel],
-                &|_, _| String::new(),
-                &|_, n| {
-                    use petgraph::visit::NodeRef;
-                    let n = n.weight().unwrap_or(0);
-                    let r = n % 3;
-                    let g = (n / 3) % 3;
-                    let b = (n / 9) % 3;
-                    format!("style=filled,color=\"#{:0>2x}24f6\"", r * 0x7f)
-                },
-            );
-            *svg.write() = Some(graphviz::svg2(&dot).await.to_string());
+    use_future(move || async move {
+        tracing::info!("future");
+    });
+    //use_effect(move || {
+    tracing::info!("render");
+    let g = g.clone();
+    spawn(async move {
+        tracing::info!("pre-render");
+        let dot = Dot::with_attr_getters(
+            &g,
+            &[petgraph::dot::Config::EdgeNoLabel],
+            &|_, _| String::new(),
+            &|_, n| {
+                use petgraph::visit::NodeRef;
+                let n = n.weight().unwrap_or(0);
+                let r = n % 3;
+                let g = (n / 3) % 3;
+                let b = (n / 9) % 3;
+                format!("style=filled,color=\"#{:0>2x}24f6\"", r * 0x7f)
+            },
+        );
+        tracing::info!("rendered: {dot:?}");
+        let svgdot = graphviz::svg2(&dot).await;
+        if *svg.read() != Some(svgdot.clone()) {
+            *svg.write() = Some(svgdot.to_string());
         }
     });
 
