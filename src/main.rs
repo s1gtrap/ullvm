@@ -145,13 +145,26 @@ pub fn DrawGraph(i: Graph) -> Element {
             &g,
             &[petgraph::dot::Config::EdgeNoLabel],
             &|_, _| String::new(),
-            &|_, n| {
-                use petgraph::visit::NodeRef;
-                let n = n.weight().unwrap_or(0);
-                let r = n % 3;
-                let g = (n / 3) % 3;
-                let b = (n / 9) % 3;
-                format!("style=filled,color=\"#{:0>2x}24f6\"", r * 0x7f)
+            &|_, n| match n.1 {
+                Some(_) => {
+                    use petgraph::visit::NodeRef;
+                    let n = n.weight().unwrap_or(0);
+                    let r = n % 3;
+                    let g = (n / 3) % 3;
+                    let b = (n / 9) % 3;
+                    let lumi = 0.2126 * (r as f32 * 255.0)
+                        + 0.7152 * (g as f32 * 255.0)
+                        + 0.0722 * (b as f32 * 255.0); // per ITU-R BT.709
+                    tracing::info!("lumi={lumi}");
+                    format!(
+                        "style=filled,color=\"#{:0>2x}{:0>2x}{:0>2x}\"{}",
+                        r * 0x7f,
+                        g * 0x7f,
+                        b * 0x7f,
+                        if lumi < 128.0 { ",fontcolor=white" } else { "" }
+                    )
+                }
+                None => String::new(),
             },
         );
         tracing::info!("rendered: {dot:?}");
@@ -183,6 +196,20 @@ impl Iterator for GraphIter {
         use rand::Rng;
         let mut rng = rand::thread_rng();
         tracing::info!("NEXT");
+
+        use petgraph::visit::IntoNodeReferences;
+        let n = self.0 .0.node_count() as u32;
+        let mut rng = rand::thread_rng();
+        let i = rng.gen_range(0..n);
+        let c = self
+            .0
+             .0
+            .node_references()
+            .filter(|(_, c)| c.is_some())
+            .count();
+        if let Some(n) = self.0 .0.node_weights_mut().filter(|n| n.is_none()).next() {
+            *n = Some(c);
+        }
         if rng.gen_range(0..100) > 1 {
             tracing::info!("some");
             Some(DrawGraphProps { i: self.0.clone() }) // TODO: this
