@@ -4,11 +4,13 @@ use std::collections::HashSet;
 
 use dioxus::prelude::*;
 use js_sys::Reflect::prevent_extensions;
+use petgraph::data::DataMapMut;
 use tracing::Level;
 use wasm_bindgen::prelude::*;
 
 mod code;
 mod cursor;
+mod graphviz;
 mod ir;
 mod iter_prev;
 mod lva;
@@ -69,6 +71,92 @@ impl Iterator for U8Iter {
     type Item = U8Props;
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next().map(|i| U8Props { i })
+    }
+}
+
+#[component]
+pub fn GraphDisplay(i: u8) -> Element {
+    rsx! {
+        p { "{i}" }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Graph(petgraph::graph::UnGraph<Option<usize>, ()>);
+
+impl Graph {
+    fn new() -> Self {
+        use petgraph::graph::UnGraph;
+        let g = UnGraph::<Option<usize>, ()>::from_edges(&[(1, 2), (2, 3), (3, 4), (1, 4)]);
+        Graph(g)
+    }
+}
+
+fn graph_eq<N, E, Ty, Ix>(
+    a: &petgraph::Graph<N, E, Ty, Ix>,
+    b: &petgraph::Graph<N, E, Ty, Ix>,
+) -> bool
+where
+    N: PartialEq,
+    E: PartialEq,
+    Ty: petgraph::EdgeType,
+    Ix: petgraph::graph::IndexType + PartialEq,
+{
+    let a_ns = a.raw_nodes().iter().map(|n| &n.weight);
+    let b_ns = b.raw_nodes().iter().map(|n| &n.weight);
+    let a_es = a
+        .raw_edges()
+        .iter()
+        .map(|e| (e.source(), e.target(), &e.weight));
+    let b_es = b
+        .raw_edges()
+        .iter()
+        .map(|e| (e.source(), e.target(), &e.weight));
+    a_ns.eq(b_ns) && a_es.eq(b_es)
+}
+
+impl PartialEq<Graph> for Graph {
+    fn eq(&self, other: &Graph) -> bool {
+        graph_eq(&self.0, &other.0)
+    }
+}
+
+#[component]
+pub fn DrawGraph(i: Graph) -> Element {
+    use petgraph::dot::Dot;
+    let mut svg = use_signal(|| None::<String>);
+    let g = i.0.clone();
+    use_future(move || {
+        let g = g.clone();
+        async move {
+            let g = g.clone();
+            let dot = Dot::new(&g);
+            tracing::info!("GEN");
+            let dotsvg = graphviz::svg2(&dot).await;
+            tracing::info!("DONE {svg:?}");
+            *svg.write() = Some(dotsvg.to_string());
+        }
+    });
+    rsx! {
+        p {
+            dangerous_inner_html: svg().unwrap_or("todo".into()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct GraphIter(Graph);
+
+impl GraphIter {
+    pub fn new() -> Self {
+        GraphIter(Graph::new())
+    }
+}
+
+impl Iterator for GraphIter {
+    type Item = DrawGraphProps;
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(DrawGraphProps { i: self.0.clone() }) // TODO: this
     }
 }
 
@@ -288,6 +376,7 @@ fn App() -> Element {
         callback.forget();
     });
     let prev_iter = use_signal(|| iter_prev::Iter::new(U8Iter(0..5)));
+    let graph_iter = use_signal(|| iter_prev::Iter::new(GraphIter::new()));
     rsx! {
         main { class: "w-full bg-slate-100",
             div { class: "flex",
@@ -511,6 +600,12 @@ fn App() -> Element {
                                 "Cursor".to_string(),
                                 rsx! {
                                     cursor::Cursor { init : U8Props { i : 69 }, iter : prev_iter, c : U8 }
+                                },
+                            ),
+                            (
+                                "Graph".to_string(),
+                                rsx! {
+                                    cursor::Cursor { init : DrawGraphProps { i : Graph::new() }, iter : graph_iter, c : DrawGraph }
                                 },
                             ),
                         ]
